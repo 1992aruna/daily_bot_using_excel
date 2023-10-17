@@ -108,6 +108,52 @@ def get_questions_from_spreadsheet(worksheet):
 # def send_questions_to_contact(contact_number, questions):
 #     for question in questions:
 #         send_message(contact_number, question)  # Implement the send_message function
+def find_staff_with_no_answers():
+    staff_with_no_answers = []
+
+    # Get all staff members from the database
+    staff_members = db.find({})
+
+    for staff in staff_members:
+        phone_number = staff.get('phone_number')
+        if not phone_number:
+            continue
+
+        # Check if there are no answers for this staff member in the answers_received database
+        answers = mongo.db.answers_received.find_one({'phone_number': phone_number})
+
+        if not answers:
+            staff_with_no_answers.append(staff)
+
+    return staff_with_no_answers
+
+def send_reminder_to_staff_with_no_answers():
+    try:
+        print("Executing send_reminder_to_staff_with_no_answers function")
+
+        # Find staff members with no answers
+        staff_with_no_answers = find_staff_with_no_answers()
+
+        if not staff_with_no_answers:
+            print("No staff members found with no answers.")
+            return
+
+        for staff in staff_with_no_answers:
+            phone_number = staff.get('phone_number')
+
+            # Construct and send the reminder message
+            reminder_message = "Reminder: You have unanswered questions. Please provide your answers."
+
+            # Send the reminder message to the staff member (implement the send_message function)
+            send_message(phone_number, reminder_message)
+
+        print("Execution of send_reminder_to_staff_with_no_answers function completed")
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
+
+scheduler.add_job(send_reminder_to_staff_with_no_answers, trigger=CronTrigger(hour=15, minute=34))
+
+
 
 def send_questions_to_contact(contact_number, questions):
     question_count = 0  # Initialize the question count to 0
@@ -472,6 +518,8 @@ if __name__ == '__main__':
 
     # Schedule the task to send new questions periodically
     scheduler.add_job(send_new_questions_periodically, IntervalTrigger(minutes=2))
+
+    # scheduler.add_job(send_reminder_to_staff_with_no_answers, trigger=CronTrigger(hour=15, minute=16))
 
     # Start the schedulers
     scheduler.start()

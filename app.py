@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from flask_pymongo import PyMongo
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 import os
 import requests
 import pandas as pd
@@ -81,6 +82,20 @@ def send_image_message(phone_number,image, caption):
     print(response)
     print(response.json())
 
+def reset_question_count_and_status():
+    try:
+        # Update the question count and status for all users
+        db.update_many({}, {"$set": {"questions_sent_count": 0, "status": ""}})
+        print("Question count and status reset for all users.")
+    except Exception as e:
+        print(f"An error occurred while resetting question count and status: {str(e)}")
+
+# scheduler.add_job(reset_question_count_and_status, trigger=CronTrigger(hour=12, minute=35))
+
+# # Start the scheduler
+# scheduler.start()
+
+
 def get_questions_from_spreadsheet(worksheet):
     try:
         questions = worksheet.col_values(1)
@@ -90,10 +105,63 @@ def get_questions_from_spreadsheet(worksheet):
         print(f"Error fetching questions from the Google Spreadsheet: {str(e)}")
         return []
 
+# def send_questions_to_contact(contact_number, questions):
+#     for question in questions:
+#         send_message(contact_number, question)  # Implement the send_message function
+
 def send_questions_to_contact(contact_number, questions):
+    question_count = 0  # Initialize the question count to 0
+
     for question in questions:
-        send_message(contact_number, question)  # Implement the send_message function
-  
+        send_message(contact_number, question)
+        question_count += 1  # Increment the question count for each sent question
+
+    # Update the user's document in the staff database with the question count
+    db.update_one({"phone_number": contact_number}, {"$set": {"questions_sent_count": question_count}})
+    
+    return question_count  # Return the total question count
+
+
+def send_new_questions_periodically():
+    try:
+        print("Executing send_new_questions_periodically function")
+        spreadsheet = client.open('Daily_Questions')
+        worksheet = spreadsheet.worksheet('Sheet1')
+
+        questions = get_questions_from_spreadsheet(worksheet)
+
+        for staff in db.find({}):
+            if 'phone_number' in staff:
+                phone_number = staff['phone_number']
+                questions_sent_count = staff.get("questions_sent_count", 0)
+                new_questions_count = len(questions) - questions_sent_count
+
+                if new_questions_count > 0:
+                    new_questions = questions[questions_sent_count:questions_sent_count + new_questions_count]
+                    send_questions_to_contact(phone_number, new_questions)
+                    print(f"Sent {new_questions_count} new questions to {phone_number}")
+
+                    # Set the status to an empty string
+                    db.update_one({"_id": staff["_id"]}, {"$set": {"status": ""}})
+
+                    # Update the questions_sent_count in the database
+                    db.update_one(
+                        {"_id": staff["_id"]},
+                        {"$set": {"questions_sent_count": questions_sent_count + new_questions_count}}
+                    )
+
+                    # Set the status to "send" after sending the questions
+                    db.update_one({"_id": staff["_id"]}, {"$set": {"status": "send"}})
+
+        print("Execution of send_new_questions_periodically function completed")
+
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
+
+# scheduler.add_job(send_new_questions_periodically, IntervalTrigger(minutes=2))
+
+# scheduler.start()
+
     
 def send_branch_images():
     try:
@@ -339,16 +407,14 @@ def generate_report():
     phone_number = "917892409211"
     print(f"Sending file to: {phone_number}")
     send_file(phone_number)
+  
 
-    
-    
+# # schedule.every().day.at("17:51").do(generate_report)
+# # Schedule the generate_report function to run daily at 17:51
+# scheduler.add_job(generate_report, trigger=CronTrigger(hour=12, minute=24))
 
-# schedule.every().day.at("17:51").do(generate_report)
-# Schedule the generate_report function to run daily at 17:51
-scheduler.add_job(generate_report, trigger=CronTrigger(hour=12, minute=24))
-
-# Start the scheduler
-scheduler.start()
+# # Start the scheduler
+# scheduler.start()
 
 def send_file(phone_number):
     dir = 'E:\\NewProject\\Python\\daily_bot_using_excel\\Output'
@@ -397,7 +463,18 @@ def webhook():
         return jsonify({'error': str(e)}), 500
 
 
-if __name__ == '__main__':
+if __name__ == '__main__':    
+    # Schedule the task to reset question count and status
+    scheduler.add_job(reset_question_count_and_status, trigger=CronTrigger(hour=12, minute=50))
+
+    # Schedule the task to generate a report
+    scheduler.add_job(generate_report, trigger=CronTrigger(hour=12, minute=24))
+
+    # Schedule the task to send new questions periodically
+    scheduler.add_job(send_new_questions_periodically, IntervalTrigger(minutes=2))
+
+    # Start the schedulers
+    scheduler.start()
     send_branch_images()
     app.run(debug=True)
 

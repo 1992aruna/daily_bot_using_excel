@@ -92,10 +92,6 @@ def reset_question_count_and_status():
 
 # scheduler.add_job(reset_question_count_and_status, trigger=CronTrigger(hour=12, minute=35))
 
-# # Start the scheduler
-# scheduler.start()
-
-
 def get_questions_from_spreadsheet(worksheet):
     try:
         questions = worksheet.col_values(1)
@@ -105,11 +101,8 @@ def get_questions_from_spreadsheet(worksheet):
         print(f"Error fetching questions from the Google Spreadsheet: {str(e)}")
         return []
 
-# def send_questions_to_contact(contact_number, questions):
-#     for question in questions:
-#         send_message(contact_number, question)  # Implement the send_message function
-def find_staff_with_no_answers():
-    staff_with_no_answers = []
+def find_staff_with_unanswered_questions():
+    staff_with_unanswered_questions = []
 
     # Get all staff members from the database
     staff_members = db.find({})
@@ -119,39 +112,69 @@ def find_staff_with_no_answers():
         if not phone_number:
             continue
 
-        # Check if there are no answers for this staff member in the answers_received database
+        # Check if there are answers for this staff member in the answers_received database
         answers = mongo.db.answers_received.find_one({'phone_number': phone_number})
 
         if not answers:
-            staff_with_no_answers.append(staff)
+            staff_with_unanswered_questions.append(staff)
+        else:
+            # Get the total question count from the staff collection
+            total_questions = staff.get('questions_sent_count', 0)
 
-    return staff_with_no_answers
+            # Check how many questions have been answered
+            answered_question_count = sum(1 for key in answers if key.startswith('answer_'))
 
-def send_reminder_to_staff_with_no_answers():
+            if answered_question_count < total_questions:
+                staff_with_unanswered_questions.append(staff)
+
+    return staff_with_unanswered_questions
+
+def count_answered_questions(phone_number):
+    # Query your answers database to count the answered questions for the given phone number
+    answered_questions_count = 0
+
+    # Assuming you have a collection named "answers_received" for storing answers
+    answers_received = mongo.db.answers_received.find_one({'phone_number': phone_number})
+
+    if answers_received:
+        # Iterate through the answers_received document and count answered questions
+        for key in answers_received:
+            if key.startswith("answer_"):
+                answered_questions_count += 1
+
+    return answered_questions_count
+
+def send_reminder_to_staff_with_unanswered_questions():
     try:
-        print("Executing send_reminder_to_staff_with_no_answers function")
+        print("Executing send_reminder_to_staff_with_unanswered_questions function")
 
-        # Find staff members with no answers
-        staff_with_no_answers = find_staff_with_no_answers()
+        # Find staff members with unanswered questions
+        staff_with_unanswered_questions = find_staff_with_unanswered_questions()
 
-        if not staff_with_no_answers:
-            print("No staff members found with no answers.")
+        if not staff_with_unanswered_questions:
+            print("No staff members found with unanswered questions.")
             return
 
-        for staff in staff_with_no_answers:
+        for staff in staff_with_unanswered_questions:
             phone_number = staff.get('phone_number')
+            # Calculate the unanswered questions count
+            total_questions_count = staff.get('questions_sent_count', 0)  # Total questions sent to the staff
+            answered_questions_count = count_answered_questions(phone_number)  # Implement a function to count answered questions
+
+            unanswered_count = total_questions_count - answered_questions_count
+
 
             # Construct and send the reminder message
-            reminder_message = "Reminder: You have unanswered questions. Please provide your answers."
+            reminder_message = f"Reminder: You have {unanswered_count} unanswered question(s). Please provide answers for the remaining {unanswered_count} question(s)."
 
             # Send the reminder message to the staff member (implement the send_message function)
             send_message(phone_number, reminder_message)
 
-        print("Execution of send_reminder_to_staff_with_no_answers function completed")
+        print("Execution of send_reminder_to_staff_with_unanswered_questions function completed")
     except Exception as e:
         print(f"An error occurred: {str(e)}")
 
-scheduler.add_job(send_reminder_to_staff_with_no_answers, trigger=CronTrigger(hour=15, minute=34))
+scheduler.add_job(send_reminder_to_staff_with_unanswered_questions, trigger=CronTrigger(hour=16, minute=41))
 
 
 
@@ -205,10 +228,7 @@ def send_new_questions_periodically():
         print(f"An error occurred: {str(e)}")
 
 # scheduler.add_job(send_new_questions_periodically, IntervalTrigger(minutes=2))
-
-# scheduler.start()
-
-    
+ 
 def send_branch_images():
     try:
         spreadsheet = client.open('Daily_Questions')
@@ -448,7 +468,7 @@ def generate_report():
     create_excel_report(user_answers)
     print("Excel report created")  # Print after the report is created
 
-    mongo.db.answers_received.delete_many({})
+    # mongo.db.answers_received.delete_many({})
 
     phone_number = "917892409211"
     print(f"Sending file to: {phone_number}")

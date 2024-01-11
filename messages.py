@@ -151,9 +151,7 @@ def send_branch_images():
             image_found = False
 
             for ext in image_extensions:
-                image_path = f'D:\\New Project\\Python\\New_Bot\\Bot\\design_bot\\branch_images\\{branch}{ext}'
-                
-                
+                image_path = f'D:\\New Project\\Python\\Question&AnswerBot\\After Modification\\Latest\\daily_bot_using_excel\\branch_images\\{branch}{ext}'
                 if os.path.isfile(image_path):
                     image_found = True
                     # Provide a caption for the image message

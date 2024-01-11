@@ -68,6 +68,7 @@ WATI_API_ENDPOINT = f"{API_URL}/api/v1/sendSessionMessage"
 
 scheduler = BackgroundScheduler()
 questions = {}
+active_sheets = {}
 
 # Function to send image message
 def send_image_message(phone_number,image, caption):
@@ -141,6 +142,11 @@ def save_question_to_database_and_spreadsheet(phone_number, questions, worksheet
             worksheet.append_row([combined_question])
             # worksheet.append_row([question_id, question_text])
             print(f"Question saved to the spreadsheet for phone number: {phone_number}")
+
+            if not user_in_question_creation_mode.get(phone_number, False):
+                # If not, clear the active sheet for this user
+                if phone_number in active_sheets:
+                    active_sheets.pop(phone_number)
 
     except Exception as e:
         print(f"An error occurred while saving questions to the database and spreadsheet: {str(e)}")
@@ -307,7 +313,7 @@ def send_new_questions_periodically():
 
 # scheduler.add_job(send_new_questions_periodically, IntervalTrigger(minutes=2))
  
-def send_branch_images(position, filtered_data):
+def send_branch_images(filtered_data):
     try:
         spreadsheet = client.open('Daily_Questions')
         # spreadsheet = client.open('Questions')
@@ -329,8 +335,8 @@ def send_branch_images(position, filtered_data):
                 image_found = False
 
                 for ext in image_extensions:
-                    image_path = f'E:\\NewProject\\Python\\daily_bot_using_excel\\branch_images\\{branch}{ext}'
-
+                    image_path = f'E:\\NewProject\\Python\\Question&AnswerBot\\After Modification\\Latest\\daily_bot_using_excel\\branch_images\\{branch}{ext}'
+                                    
                     if os.path.isfile(image_path):
                         image_found = True
                         print("Image exists. Sending to", phone_number)
@@ -405,22 +411,19 @@ def process_message(phone_number, message):
     
     global help_requested, questions
     # global global_questions
-    questions = {}
-    active_sheets = {}
+    questions = {}    
 
     if message.startswith("/create"):
-        # Check if the user has the necessary position to create questions
         user = db.find_one({"phone_number": phone_number})
         if user and user.get("position") in ["BM", "RM"]:
-            # Set the user in question creation mode
             user_in_question_creation_mode[phone_number] = True
             print(f"User {phone_number} entered question creation mode.")
             send_message(phone_number, "You are now in question creation mode. Send your questions one by one.")
             
             # Check if the user has an active sheet, create one if not
-            # if phone_number not in active_sheets:
-            #     spreadsheet, worksheet, worksheet_name = open_spreadsheet()
-            #     active_sheets[phone_number] = {"spreadsheet": spreadsheet, "worksheet": worksheet, "worksheet_name": worksheet_name}
+            if phone_number not in active_sheets:
+                spreadsheet, worksheet, worksheet_name = open_spreadsheet()
+                active_sheets[phone_number] = {"spreadsheet": spreadsheet, "worksheet": worksheet, "worksheet_name": worksheet_name}
 
             questions[phone_number] = []  # Initialize questions for this user
             print(f"questions after /create: {questions}")
@@ -429,7 +432,6 @@ def process_message(phone_number, message):
             send_message(phone_number, "Permission denied. You don't have the necessary position to create questions.")
 
     elif user_in_question_creation_mode.get(phone_number, False):
-        # Check if the user wants to end question creation mode
         if message.strip() == "/end":
             send_message(phone_number, "Question creation mode ended.")
             user_in_question_creation_mode[phone_number] = False
@@ -449,11 +451,6 @@ def process_message(phone_number, message):
             print(f"questions_to_save: {questions_to_save}")
 
             if questions_to_save and "/end" not in questions_to_save:
-                # Check if the user has an active sheet, create one if not
-                if phone_number not in active_sheets:
-                    spreadsheet, worksheet, worksheet_name = open_spreadsheet()
-                    active_sheets[phone_number] = {"spreadsheet": spreadsheet, "worksheet": worksheet, "worksheet_name": worksheet_name}
-
                 save_question_to_database_and_spreadsheet(phone_number, questions_to_save, active_sheets[phone_number]["worksheet"])
 
             send_message(phone_number, f"To end, send '/end'.")
@@ -553,9 +550,11 @@ def process_message(phone_number, message):
                 # Handle the reply to the options message
                 position = message.strip()  # Get the position from the message
                 filtered_data = db.find({"position": position, "status": ""})
-                print(f"Filtered data: {filtered_data}")
+                documents = list(filtered_data)
+                for doc in documents:
+                    print(doc)
                 # Call send_branch_images function with the filtered data
-                send_branch_images(filtered_data)
+                # send_branch_images(filtered_data)
         
         # try:
         question_number = extract_question_number(message)

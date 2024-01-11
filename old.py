@@ -6,20 +6,19 @@ from apscheduler.triggers.interval import IntervalTrigger
 import os
 import requests
 import pandas as pd
-from pymongo import MongoClient, DESCENDING
+from pymongo import MongoClient
 from dotenv import load_dotenv
 from messages import *
 from utils import retrieve_user_answers, send_excel_file
 from google.oauth2 import service_account
 import gspread
 import logging
-import uuid
+import schedule
+import re
 import datetime
 import time
 import openai
 from openai.error import RateLimitError
-from bson import ObjectId
-import pymongo
 
 # Specify the path to your service account JSON key file
 keyfile_path = 'google_cloud.json'
@@ -84,66 +83,25 @@ def send_image_message(phone_number,image, caption):
     response = requests.post(url, headers=headers, json=payload, files=files)
     print(response)
     print(response.json())
-
-def open_spreadsheet():
-    # Open the 'Daily_Questions' spreadsheet
-    spreadsheet = client.open('Questions')
-    
-    # Create a unique worksheet name based on the current timestamp
-    worksheet_name = f"New_Worksheet_{int(time.time())}"
-
-    # Create a new worksheet
-    worksheet = spreadsheet.add_worksheet(worksheet_name, rows=1000, cols=20)  # Adjust rows and cols as needed
-
-    return spreadsheet, worksheet, worksheet_name
-
-
-def get_latest_question_id():
+def save_question_to_database(phone_number, questions):
     # Assuming you have a collection named 'questions' in your MongoDB
     questions_collection = mongo.db.questions
-    # Get the latest question from the database
-    latest_question = questions_collection.find_one({}, sort=[("question_id", pymongo.DESCENDING)])
-    return latest_question["question_id"] if latest_question else 00000
-
-def save_question_to_database_and_spreadsheet(phone_number, questions, worksheet):
-    # Assuming you have a collection named 'questions' in your MongoDB
-    questions_collection = mongo.db.questions
-
-    try:
-        starting_id = 10000
-        starting_id = get_latest_question_id() + 1
-
-        for question_text in questions:
-            # # Generate a five-digit question ID
-            # question_id = str(current_id).zfill(5)
-            
-            starting_id = get_latest_question_id() + 1
-            question_id = starting_id
-            # Save to the database
-            question_doc = {
-                "_id": ObjectId(),
-                "created_By": phone_number,
-                "question_id": question_id,
-                "question_text": question_text,
-            }
-            result = questions_collection.insert_one(question_doc)
     
-            if result.inserted_id:
-                print(f"Question saved to the 'questions' collection for phone number: {phone_number}")
-                starting_id += 1  # Increment the current ID for the next question
-            else:
-                print(f"Failed to save question to the 'questions' collection for phone number: {phone_number}")
+    # Create a document to represent the question
+    question_doc = {
+        "phone_number": phone_number,
+        "questions": questions,
+        # Add any additional fields you may need
+    }
 
-            # Save to the spreadsheet
-            # spreadsheet = client.open('Daily_Questions')
-            # worksheet = spreadsheet.worksheet('Sheet2')
-            combined_question = f"{question_id}. {question_text}"
-            worksheet.append_row([combined_question])
-            # worksheet.append_row([question_id, question_text])
-            print(f"Question saved to the spreadsheet for phone number: {phone_number}")
+    # Insert the document into the 'questions' collection
+    result = questions_collection.insert_one(question_doc)
+    
+    if result.inserted_id:
+        print(f"Question saved to the 'questions' collection for phone number: {phone_number}")
+    else:
+        print(f"Failed to save question to the 'questions' collection for phone number: {phone_number}")
 
-    except Exception as e:
-        print(f"An error occurred while saving questions to the database and spreadsheet: {str(e)}")
 # def filter_data_by_position(position):
 #     try:
 #         # Assuming 'position' is one of ["Clerical", "Officer", "BM"]
@@ -307,15 +265,14 @@ def send_new_questions_periodically():
 
 # scheduler.add_job(send_new_questions_periodically, IntervalTrigger(minutes=2))
  
-def send_branch_images(position, filtered_data):
+def send_branch_images():
     try:
         spreadsheet = client.open('Daily_Questions')
-        # spreadsheet = client.open('Questions')
         worksheet = spreadsheet.worksheet('Sheet2')
 
         questions = get_questions_from_spreadsheet(worksheet)
-
-        for staff in filtered_data:
+        
+        for staff in db.find({"status": ""}):
             # Check if 'branch' and 'phone_number' fields exist in the document
             if 'branch' in staff and 'phone_number' in staff:
                 branch = staff['branch']
@@ -330,7 +287,7 @@ def send_branch_images(position, filtered_data):
 
                 for ext in image_extensions:
                     image_path = f'E:\\NewProject\\Python\\daily_bot_using_excel\\branch_images\\{branch}{ext}'
-
+                                    
                     if os.path.isfile(image_path):
                         image_found = True
                         print("Image exists. Sending to", phone_number)
@@ -406,8 +363,6 @@ def process_message(phone_number, message):
     global help_requested, questions
     # global global_questions
     questions = {}
-    active_sheets = {}
-
     if message.startswith("/create"):
         # Check if the user has the necessary position to create questions
         user = db.find_one({"phone_number": phone_number})
@@ -416,15 +371,9 @@ def process_message(phone_number, message):
             user_in_question_creation_mode[phone_number] = True
             print(f"User {phone_number} entered question creation mode.")
             send_message(phone_number, "You are now in question creation mode. Send your questions one by one.")
-            
-            # Check if the user has an active sheet, create one if not
-            # if phone_number not in active_sheets:
-            #     spreadsheet, worksheet, worksheet_name = open_spreadsheet()
-            #     active_sheets[phone_number] = {"spreadsheet": spreadsheet, "worksheet": worksheet, "worksheet_name": worksheet_name}
-
-            questions[phone_number] = []  # Initialize questions for this user
-            print(f"questions after /create: {questions}")
-
+            # global_questions[phone_number] = []
+            questions[phone_number] = []
+            print(f"global_questions after /create: {questions}")
         else:
             send_message(phone_number, "Permission denied. You don't have the necessary position to create questions.")
 
@@ -433,32 +382,27 @@ def process_message(phone_number, message):
         if message.strip() == "/end":
             send_message(phone_number, "Question creation mode ended.")
             user_in_question_creation_mode[phone_number] = False
+            questions_to_save = questions.get(phone_number, [message])
+            print(f"questions_to_save: {questions_to_save}")
+            if questions_to_save and "/end" not in questions_to_save:
+                save_question_to_database(phone_number, questions_to_save)
+            # Clear the stored questions for this user
+            questions.pop(phone_number, None)
+            print(f"User {phone_number} ended question creation.")
 
-            # Clear the active sheet for this user
-            if phone_number in active_sheets:
-                active_sheets.pop(phone_number)
-            
             options_message = "To whom do you want to send the questions?\n1. Clerical\n2. Officer\n3. BM"
             send_message(phone_number, options_message)
 
+            
         else:
-            questions_to_save = questions.get(phone_number, [])
-            questions_to_save.append(message)
-            questions[phone_number] = questions_to_save
-
-            print(f"questions_to_save: {questions_to_save}")
-
-            if questions_to_save and "/end" not in questions_to_save:
-                # Check if the user has an active sheet, create one if not
-                if phone_number not in active_sheets:
-                    spreadsheet, worksheet, worksheet_name = open_spreadsheet()
-                    active_sheets[phone_number] = {"spreadsheet": spreadsheet, "worksheet": worksheet, "worksheet_name": worksheet_name}
-
-                save_question_to_database_and_spreadsheet(phone_number, questions_to_save, active_sheets[phone_number]["worksheet"])
-
+            questions.setdefault(phone_number, []).append(message)
+            print(f"User {phone_number} added question: {message}")
+            # User is in question creation mode, save the message as a question
+            spreadsheet = client.open('Daily_Questions')
+            worksheet = spreadsheet.worksheet('Sheet2')
+            worksheet.append_row([message])
             send_message(phone_number, f"To end, send '/end'.")
 
-    
     elif message == "/help":
     
         help_requested = True
@@ -548,14 +492,6 @@ def process_message(phone_number, message):
         questions = get_questions_from_spreadsheet(worksheet)
 
         print(f"Received message: {message} from phone_number: {phone_number}")
-        
-        if message.strip() in ["Clerical", "Officer", "BM"]:
-                # Handle the reply to the options message
-                position = message.strip()  # Get the position from the message
-                filtered_data = db.find({"position": position, "status": ""})
-                print(f"Filtered data: {filtered_data}")
-                # Call send_branch_images function with the filtered data
-                send_branch_images(filtered_data)
         
         # try:
         question_number = extract_question_number(message)
@@ -710,5 +646,6 @@ if __name__ == '__main__':
 
     # Start the schedulers
     scheduler.start()
+    send_branch_images()
     app.run(debug=True)
 

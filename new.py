@@ -334,7 +334,7 @@ def send_branch_images(documents, questions):
                 image_found = False
 
                 for ext in image_extensions:
-                    image_path = f'E:\\NewProject\\Python\\Question&AnswerBot\\After Modification\\Latest\\daily_bot_using_excel\\branch_images\\{branch}{ext}'
+                    image_path = f'E:\\NewProject\\Python\\\Corprate App\\Question&AnswerBot\\After Modification\\Latest\\daily_bot_using_excel\\branch_images\\{branch}{ext}'
                                     
                     if os.path.isfile(image_path):
                         image_found = True
@@ -601,9 +601,11 @@ def process_message(phone_number, message):
                         }
                         result = mongo.db.answers_received.insert_one(answers_received)
                         print(f"Inserted responses into the database, received ID: {result.inserted_id}")
-
+    
             except Exception as e:
                 print(f"An error occurred: {e}")
+
+    
 
 def extract_question_number(message):
     # Split the message into words
@@ -627,7 +629,7 @@ def create_excel_report(user_answers):
     # Get the current date to create a filename with just the date
     current_date = datetime.date.today()
     formatted_date = current_date.strftime("%Y-%m-%d")
-    output_folder_path = "E:\\NewProject\\Python\\daily_bot_using_excel\\Output"
+    output_folder_path = "E:\\NewProject\\Python\\Corprate App\\Question&AnswerBot\\After Modification\\Latest\\daily_bot_using_excel\\Output"
     file_name = f"answer_{formatted_date}.xlsx"
     file_path = os.path.join(output_folder_path, file_name)
 
@@ -659,7 +661,7 @@ def generate_report():
 # scheduler.start()
 
 def send_file(phone_number):
-    dir = 'E:\\NewProject\\Python\\daily_bot_using_excel\\Output'
+    dir = 'E:\\NewProject\\Python\\Corprate App\\Question&AnswerBot\\After Modification\\Latest\\daily_bot_using_excel\\Output'
     # phone_number = "917892409211"
     # Get the current date to create the file name
     current_date = datetime.date.today()

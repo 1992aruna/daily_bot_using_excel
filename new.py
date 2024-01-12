@@ -91,7 +91,7 @@ def open_spreadsheet():
     spreadsheet = client.open('Questions')
     
     # Create a unique worksheet name based on the current timestamp
-    worksheet_name = f"New_Worksheet_{int(time.time())}"
+    worksheet_name = f"Sheet_{int(time.time())}"
 
     # Create a new worksheet
     worksheet = spreadsheet.add_worksheet(worksheet_name, rows=1000, cols=20)  # Adjust rows and cols as needed
@@ -313,15 +313,14 @@ def send_new_questions_periodically():
 
 # scheduler.add_job(send_new_questions_periodically, IntervalTrigger(minutes=2))
  
-def send_branch_images(filtered_data):
-    try:
-        spreadsheet = client.open('Daily_Questions')
-        # spreadsheet = client.open('Questions')
-        worksheet = spreadsheet.worksheet('Sheet2')
-
-        questions = get_questions_from_spreadsheet(worksheet)
-
-        for staff in filtered_data:
+def send_branch_images(documents, questions):
+    print("Executing send_branch_images function")
+    
+    try:        
+        print(f"questions: {questions}")
+        print(f"Filtered data: {list(documents)}") 
+        for staff in documents:
+            print(f"staff: {staff}")
             # Check if 'branch' and 'phone_number' fields exist in the document
             if 'branch' in staff and 'phone_number' in staff:
                 branch = staff['branch']
@@ -367,6 +366,7 @@ def send_branch_images(filtered_data):
         # client.close()
     except Exception as e:
         print(f"An error occurred: {str(e)}")
+        
 
 def search_for_answer(user_question, worksheet):
     # Read data from the worksheet
@@ -437,8 +437,8 @@ def process_message(phone_number, message):
             user_in_question_creation_mode[phone_number] = False
 
             # Clear the active sheet for this user
-            if phone_number in active_sheets:
-                active_sheets.pop(phone_number)
+            # if phone_number in active_sheets:
+            #     active_sheets.pop(phone_number)
             
             options_message = "To whom do you want to send the questions?\n1. Clerical\n2. Officer\n3. BM"
             send_message(phone_number, options_message)
@@ -539,61 +539,71 @@ def process_message(phone_number, message):
         user_in_question_mode[phone_number] = False
 
     else:
-        spreadsheet = client.open('Daily_Questions')
-        worksheet = spreadsheet.worksheet('Sheet1')
-
-        questions = get_questions_from_spreadsheet(worksheet)
-
+        
         print(f"Received message: {message} from phone_number: {phone_number}")
         
         if message.strip() in ["Clerical", "Officer", "BM"]:
-                # Handle the reply to the options message
-                position = message.strip()  # Get the position from the message
-                filtered_data = db.find({"position": position, "status": ""})
+            print("Received position from user")
+            # Handle the reply to the options message
+            position = message.strip()  # Get the position from the message
+            print(f"Received position from user: {position}")
+            # filtered_data = db.find({"position": position, "status": ""})
+            if phone_number in active_sheets:
+                active_sheet_info = active_sheets[phone_number]
+                spreadsheet = active_sheet_info["spreadsheet"]
+                worksheet = active_sheet_info["worksheet"]
+                worksheet_name = active_sheet_info["worksheet_name"]
+
+                # Retrieve questions from the active sheet
+                questions = get_questions_from_spreadsheet(worksheet)
+                print(f"Retrieved questions from active sheet: {questions}")
+                if phone_number in active_sheets:
+                    active_sheets.pop(phone_number)
+                filtered_data = db.find({"position": position})
                 documents = list(filtered_data)
+                print(f"Documents: {documents}")
                 for doc in documents:
                     print(doc)
                 # Call send_branch_images function with the filtered data
-                # send_branch_images(filtered_data)
-        
-        # try:
-        question_number = extract_question_number(message)
-        
-        if question_number is not None:
-            print(f"Extracted question number: {question_number}")
-
-            # Get the corresponding question
-            question = questions[question_number - 1]  # Subtract 1 because list indices start at 0
-        
-            # Extract only the response text from the message
-            response_text = message.split('.', 1)[1].strip() if '.' in message else message
-
-            # Check if a document for this phone number already exists
-            answers_received = mongo.db.answers_received.find_one({'phone_number': phone_number})
-
-            if answers_received:
-                # If a document exists, update it with the new response
-                mongo.db.answers_received.update_one(
-                    {'phone_number': phone_number},
-                    {'$set': {f'question_{question_number}': question, f'answer_{question_number}': response_text}}
-                )
-                print(f"Updated responses in the database for phone number: {phone_number}")
+                send_branch_images(documents, questions)
             else:
-                # If no document exists, create a new one
-                answers_received = {
-                    'phone_number': phone_number,
-                    f'question_{question_number}': question,
-                    f'answer_{question_number}': response_text,
-                }
-                result = mongo.db.answers_received.insert_one(answers_received)
-                print(f"Inserted responses into the database, received ID: {result.inserted_id}")
+                print(f"No active sheet found for user {phone_number}")
+
+        # Check if the message is a question
         else:
-            send_message(phone_number, f"Please provide your answers in the following format: 1. Answer")
+            try:
+                question_number = extract_question_number(message)
+                if question_number is not None:
+                    print(f"Extracted question number: {question_number}")
 
+                    # Get the corresponding question
+                    question = questions[question_number - 1]  # Subtract 1 because list indices start at 0
+                
+                    # Extract only the response text from the message
+                    response_text = message.split('.', 1)[1].strip() if '.' in message else message
 
-        # except ValueError:
-        #     # Assuming you have a function to send a message, replace 'send_message_function' with your actual function
-        #     send_message(phone_number, f"Please provide your answers in the following format: 1. Answer")
+                    # Check if a document for this phone number already exists
+                    answers_received = mongo.db.answers_received.find_one({'phone_number': phone_number})
+
+                    if answers_received:
+                        # If a document exists, update it with the new response
+                        mongo.db.answers_received.update_one(
+                            {'phone_number': phone_number},
+                            {'$set': {f'question_{question_number}': question, f'answer_{question_number}': response_text}}
+                        )
+                        print(f"Updated responses in the database for phone number: {phone_number}")
+                    else:
+                        # If no document exists, create a new one
+                        answers_received = {
+                            'phone_number': phone_number,
+                            f'question_{question_number}': question,
+                            f'answer_{question_number}': response_text,
+                        }
+                        result = mongo.db.answers_received.insert_one(answers_received)
+                        print(f"Inserted responses into the database, received ID: {result.inserted_id}")
+
+            except Exception as e:
+                print(f"An error occurred: {e}")
 
 def extract_question_number(message):
     # Split the message into words
@@ -697,13 +707,13 @@ def webhook():
 
 if __name__ == '__main__':    
     # Schedule the task to reset question count and status
-    scheduler.add_job(reset_question_count_and_status, trigger=CronTrigger(hour=12, minute=50))
+    # scheduler.add_job(reset_question_count_and_status, trigger=CronTrigger(hour=12, minute=50))
 
     # Schedule the task to generate a report
-    scheduler.add_job(generate_report, trigger=CronTrigger(hour=15, minute=32))
+    # scheduler.add_job(generate_report, trigger=CronTrigger(hour=15, minute=32))
 
     # Schedule the task to send new questions periodically
-    scheduler.add_job(send_new_questions_periodically, IntervalTrigger(minutes=2))
+    # scheduler.add_job(send_new_questions_periodically, IntervalTrigger(minutes=2))
 
     # scheduler.add_job(send_reminder_to_staff_with_no_answers, trigger=CronTrigger(hour=15, minute=16))
 

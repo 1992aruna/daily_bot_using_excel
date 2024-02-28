@@ -1,6 +1,6 @@
 import requests
 import json
-from app import API_URL, ACCESS_TOKEN
+from final import API_URL, ACCESS_TOKEN
 import os
 import gridfs
 from dotenv import load_dotenv
@@ -52,7 +52,20 @@ def send_image_message(contact_number,image, caption):
     print(response)
     print(response.json())
 
+def send_pdf_message(contact_number,pdf, caption):
+    url = f"{API_URL}/api/v1/sendSessionFile/{contact_number}?caption={caption}"
 
+    payload = {}
+    files=[
+    ('file',('file',open(pdf,'rb'),'pdf/pdf'))
+    ]
+    headers = {
+    'Authorization': ACCESS_TOKEN
+    }
+
+    response = requests.post(url, headers=headers, json=payload, files=files)
+    print(response)
+    print(response.json())
 ##-------------------------------- Customized image message sending -----------------------------------------------------------------------------   ##
 
 def send_images(contact_number,option):
@@ -120,7 +133,9 @@ def get_media(filename):
     return response
 
 #----------------------------------------------------------- Image uploading on server -------------------------------------------------------#
-def upload_image(filename, fs):
+
+
+def upload_pdf(filename, fs):
     response= get_media(filename)
     if response.status_code==200:
         file=fs.put(response.content, filename=filename)
@@ -129,7 +144,6 @@ def upload_image(filename, fs):
         return file
     
     return False
-
 # ----------------------------------------------------------------------------------------------------------------------------------- #    
 
 def send_branch_images():
@@ -198,4 +212,89 @@ def send_branch_images():
 #         return False
 
 #--------------------------------------SEND EXCEL TO RECIPIENT------------------------------------------------#
+
+def send_video_message(contact_number, video, caption):
+    url = f"{API_URL}/api/v1/sendSessionFile/{contact_number}?caption={caption}"
+
+    payload = {}
+    files = [
+        ('file', ('video.mp4', open(video, 'rb'), 'video/mp4'))
+    ]
+    headers = {
+        'Authorization': ACCESS_TOKEN
+    }
+
+    response = requests.post(url, headers=headers, json=payload, files=files)
+    print(response)
+    print(response.json())
+    
+def send_videos(contact_number):
+    dir="E:/NewProject/Python/Corprate App/Question&AnswerBot/After Modification/Latest/daily_bot_using_excel/video"
+    video_path=f'{dir}/sample-5s.mp4'
+    caption = "Check out this video!"
+    # caption = "Check out this video! For more details visit our website.\n\n https://www.dexa.co.in/"
+    send_video_message(contact_number, video_path, caption)
+
+#---------------------------------- Audio -------------------------------------------------------------#
+def send_audio_message(contact_number, audio, caption):
+    url = f"{API_URL}/api/v1/sendSessionFile/{contact_number}?caption={caption}"
+
+    # Prepare the payload and specify the file as 'audio/mpeg'
+    payload = {}
+    files = [
+        ('file', ('audio.mp3', open(audio, 'rb'), 'audio/mpeg'))
+    ]
+
+    headers = {
+        'Authorization': ACCESS_TOKEN
+    }
+
+    # Send the audio file using a POST request
+    response = requests.post(url, headers=headers, json=payload, files=files)
+
+    # Print the response and its JSON content
+    print(response)
+    print(response.json())
+    
+def send_audio(contact_number):
+    dir = "E:/NewProject/Python/Corprate App/Question&AnswerBot/After Modification/Latest/daily_bot_using_excel/audio"  # Replace with the directory containing your audio file
+    audio_path = f'{dir}/sound.mp3'  # Replace with the audio file name
+    caption = "Check out this audio message!"
+    send_audio_message(contact_number, audio_path, caption)
+
+#-------------------------------------------- Pdf ----------------------------------------------------#
+
+def send_pdf_message(contact_number, pdf_file, caption):
+    url = f"{API_URL}/api/v1/sendSessionFile/{contact_number}?caption={caption}"
+
+    # Prepare the payload and specify the file as 'application/pdf'
+    payload = {}
+    files = [
+        ('file', ('file.pdf', open(pdf_file, 'rb'), 'application/pdf'))
+    ]
+
+    headers = {
+        'Authorization': ACCESS_TOKEN
+    }
+
+    # Send the PDF file using a POST request
+    response = requests.post(url, headers=headers, json=payload, files=files)
+
+    # Print the response and its JSON content
+    print(response)
+    print(response.json())
+    
+
+def send_pdf(contact_number):
+    dir = "E:/NewProject/Python/Corprate App/Question&AnswerBot/After Modification/Latest/daily_bot_using_excel/pdf"  # Replace with the directory containing your PDF file
+    pdf_path = f'{dir}/MAJD_2.pdf'  # Replace with the PDF file name
+    caption = "PDF File"
+
+    # Ensure the PDF file exists
+    if not os.path.isfile(pdf_path):
+        print(f"PDF file '{pdf_path}' not found.")
+        return
+
+    # Call the function to send the PDF
+    send_pdf_message(contact_number, pdf_path, caption)
 

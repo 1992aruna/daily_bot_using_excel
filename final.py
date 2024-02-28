@@ -5,6 +5,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 import os
 import requests
+import re
 import pandas as pd
 from pymongo import MongoClient, DESCENDING
 from dotenv import load_dotenv
@@ -20,6 +21,17 @@ import openai
 from openai.error import RateLimitError
 from bson import ObjectId
 import pymongo
+
+# allowed_extensions=["png", "jpg", "jpeg", "mp4", "mp3", "pdf"]
+
+# def allowed_file(filename):
+#   ext=filename.split(".")[-1]
+#   if ext in allowed_extensions:
+#       return True
+
+def allowed_file(filename):
+    ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'doc', 'docx', 'mp4', 'mp3'}
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # Specify the path to your service account JSON key file
 keyfile_path = 'google_cloud.json'
@@ -81,7 +93,32 @@ def send_image_message(phone_number,image, caption):
     response = requests.post(url, headers=headers, json=payload, files=files)
     print(response)
     print(response.json())
+    
+def get_media(filename):
+    url = f"{API_URL}/api/v1/getMedia"
 
+    payload = {'fileName': filename}
+    
+    headers = {
+    'Authorization': ACCESS_TOKEN
+    }
+
+    response = requests.get(url, headers=headers, data=payload)
+    return response
+def upload_image(filename, loc):
+    response= get_media(filename)
+    filename=filename.split("/")[-1]
+    if response.status_code==200:
+        #file=fs.put(response.content, filename=filename)
+        
+        with open(f'{loc}/{filename}', "wb") as f:
+                f.write(response.content)
+       
+        #print(file)
+        print("Upload Complete")
+        return f"{loc}/{filename}"
+    
+    return False
 def open_spreadsheet():
     # Open the 'Daily_Questions' spreadsheet
     spreadsheet = client.open('Questions')
@@ -726,10 +763,13 @@ def process_message(phone_number, message):
         # Check if the message is a question
         else:
             data_1 = request.json
-            print(data_1)
+            print("Data Type", data_1)
             try:
                 number = data_1['waId']
                 print(number)
+
+                message_type = data_1.get('type')
+                print("Message Type:", message_type)
 
                 if data_1['type'] == 'text':
                     incoming_message = data_1['text']
@@ -772,7 +812,65 @@ def process_message(phone_number, message):
                             return jsonify({"status": "success", "message": "Answer recorded."}), 200
                     else:
                         return jsonify({"status": "error", "message": "Invalid question number. Please try again."}), 400
+                elif data_1['type'] == 'image' or data_1['type'] == 'document':
+                    print("Full request data:", data_1)
+                    incoming_image = data_1.get('data')
+                    print("Received Incoming Image:", incoming_image)
+                    filename = re.findall("data.+", data_1['data'])[0]  # Extract the filename
+                    # filename = "generated_filename.jpg"
+                    print("Generated image filename:", filename)
+                    if not allowed_file(filename):
+                        raise Exception("Invalid file type.")
                     
+                    loc = "E:\\NewProject\\Python\\Corprate App\\Question&AnswerBot\\After Modification\\Latest\\daily_bot_using_excel\\images"
+                    image_path = upload_image(filename, loc)
+                    caption = data_1.get('text', '')
+                    print("Received image caption:", caption)
+                    if caption and ". " in caption:
+                        response_number, answer = caption.split(". ", 1)
+                        print(response_number)
+                        print(answer)
+                    else:
+                        print("Caption is None or does not contain the delimiter '. '")
+
+
+                    question_id = int(response_number)
+                    print(question_id)
+                    question_data = questions_db.find_one({"question_id": question_id})
+
+                    if question_data:
+                        # Check if an entry with the same "answered_by" and "created_By" values exists
+                        existing_entry = answers_db.find_one({"answered_by": number, "created_By": question_data["created_By"]})
+
+                        if existing_entry:
+                            # If the same "answered_by" and "created_By" values exist, update the existing entry
+                            filter_query = {"answered_by": number, "created_By": question_data["created_By"]}
+                            update_query = {
+                                "$set": {
+                                    "question_"+str(question_data["question_id"]): question_data["question_text"],
+                                    "answer_"+str(question_data["question_id"]): answer,
+                                    "answer_image_"+str(question_data["question_id"]): image_path
+                                }
+                            }
+                            answers_db.update_one(filter_query, update_query)
+
+                            return jsonify({"status": "success", "message": "Answer updated."}), 200
+                        else:
+                            # If no entry with the same "answered_by" and "created_By" values exists, insert a new one
+                            answer_data = {
+                                "created_By": question_data["created_By"],
+                                "answered_by": number,
+                                "question_"+str(question_data["question_id"]): question_data["question_text"],
+                                "answer_"+str(question_data["question_id"]): answer,
+                                "answer_image_"+str(question_data["question_id"]): image_path
+                            }
+                            answers_db.insert_one(answer_data)
+
+                            return jsonify({"status": "success", "message": "Answer recorded."}), 200
+                    else:
+                        return jsonify({"status": "error", "message": "Invalid question number. Please try again."}), 400
+ 
+
             except Exception as e:
                 print(e)
                 print("message sent")  
@@ -826,7 +924,7 @@ def generate_report():
   
 
 def send_file(phone_number):
-    dir = 'C:\\Users\\Akshaya Micheal\\Downloads\\daily_bot_using_excel\\Output'
+    dir = 'E:\\NewProject\\Python\\Corprate App\\Question&AnswerBot\\After Modification\\Latest\\daily_bot_using_excel\\Output'
     # phone_number = "917892409211"
     # Get the current date to create the file name
     current_date = datetime.date.today()

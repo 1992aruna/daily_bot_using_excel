@@ -5,6 +5,14 @@ import os
 import gridfs
 from dotenv import load_dotenv
 from pymongo import MongoClient
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
+import pdfkit
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
 
 
 
@@ -298,3 +306,113 @@ def send_pdf(contact_number):
     # Call the function to send the PDF
     send_pdf_message(contact_number, pdf_path, caption)
 
+#-------------------------------------------Mail----------------------------------------------------------#
+
+def send_email_with_attachment(to_email, subject, message, attachment_path):
+    from_email = os.environ.get("EMAIL_ADDRESS")
+    app_password = os.environ.get("EMAIL_PASSWORD")
+
+    msg = MIMEMultipart()
+    msg['From'] = from_email
+    msg['To'] = to_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(message, 'plain'))
+
+    filename = os.path.basename(attachment_path)
+    attachment = open(attachment_path, "rb")
+    part = MIMEBase('application', 'octet-stream')
+    part.set_payload(attachment.read())
+    encoders.encode_base64(part)
+    part.add_header('Content-Disposition', f"attachment; filename= {filename}")
+    msg.attach(part)
+
+    try:
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(from_email, app_password)  
+        text = msg.as_string()
+        server.sendmail(from_email, to_email, text)
+        server.quit()
+        print("Email sent successfully.")
+    except Exception as e:
+        print(f"Error sending email: {str(e)}")
+
+
+def send_document(email, branch):
+    dir = "E:/NewProject/Python/Corprate App/Question&AnswerBot/After Modification/Latest/daily_bot_using_excel/documents"
+    allowed_extensions = ["pdf", "docx"]
+    document_path = None
+
+    # Loop through the allowed extensions and find the first matching document
+    for extension in allowed_extensions:
+        possible_document_path = f"{dir}/{branch}.{extension}"
+        if os.path.exists(possible_document_path):
+            document_path = possible_document_path
+            break
+
+    if document_path:
+        subject = f"Your document for {branch} branch"
+        message = "Please find the attached document."
+        send_email_with_attachment(email, subject, message, document_path)
+    else:
+        print(f"No matching document found for {branch}")
+
+#-----------------------------------------HTML FORM------------------------------------------------------#
+pdf_counts = {}
+
+def create_pdf(data, phone_number, output_dir='Form_Output'):
+    # If the phone number is not in the dictionary, add it
+    if phone_number not in pdf_counts:
+        pdf_counts[phone_number] = 1
+    else:
+        # If the phone number is already in the dictionary, increment the count
+        pdf_counts[phone_number] += 1
+
+    # Create the output path using the phone number and the count
+    output_path = f'{output_dir}/{phone_number}_{pdf_counts[phone_number]}.pdf'
+    html_content = f"""
+    <html>
+    <body>
+    <h2>User Information</h2>
+    <p><strong>Name:</strong> {data['name']}</p>
+    <p><strong>Age:</strong> {data['age']}</p>
+    <p><strong>Qualification:</strong> {data['qualification']}</p>
+    </body>
+    </html>
+    """
+
+    c = canvas.Canvas(output_path, pagesize=letter)
+    width, height = letter
+
+    c.setFont("Helvetica", 24)
+    c.drawString(30, height - 50, "User Information")
+
+    c.setFont("Helvetica", 16)
+    c.drawString(30, height - 100, f"Name: {data['name']}")
+    c.drawString(30, height - 130, f"Age: {data['age']}")
+    c.drawString(30, height - 160, f"Qualification: {data['qualification']}")
+
+    c.save()
+
+    return output_path
+def send_form_pdf(contact_number, pdf_output_path):
+    dir = pdf_output_path# Replace with the PDF file name
+    caption = "PDF File"
+
+    # Ensure the PDF file exists
+    if not os.path.isfile(pdf_output_path):
+        print(f"PDF file '{pdf_output_path}' not found.")
+        return
+
+    # Call the function to send the PDF
+    send_pdf_message(contact_number, pdf_output_path, caption)
+
+# # Function to generate PDF from HTML content
+# def html_to_pdf(html_content):
+#     pdf = FPDF()
+#     pdf.add_page()
+#     pdf.set_font("Arial", size=12)
+#     pdf.write_html(html_content)
+#     pdf_output_path = "user_information.pdf"
+#     pdf.output(pdf_output_path)
+#     return pdf_output_path

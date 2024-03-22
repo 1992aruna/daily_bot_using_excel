@@ -18,7 +18,7 @@ import uuid
 import datetime
 import time
 import openai
-from openai.error import RateLimitError
+# from openai.error import RateLimitError
 from bson import ObjectId
 import pymongo
 
@@ -66,6 +66,7 @@ answers_db = mongo.db.answers
 suggestion_db = mongo.db.suggestion
 feedback_db = mongo.db.feedback
 chatgpt_db = mongo.db.chatgpt
+form_db = mongo.db.form_data
 user_queries_db = mongo.db.user_queries
 
 if chatgpt_db is None:
@@ -395,10 +396,15 @@ def search_for_answer(user_question, worksheet):
                 return col['Answer']
     return "I couldn't find an answer to your question."
 
+
+
 user_in_question_mode = {}
 suggestion_mode = {}
 feedback_mode = {}
 complaint_mode = {}
+mail_mode = {}
+form_mode = {}
+form_data = {}
 user_in_question_creation_mode = {}
 
 
@@ -426,6 +432,29 @@ def chat_with_gpt(question):
     gpt_response = response['choices'][0]['message']['content']
     return gpt_response
 help_requested = False
+def handle_form_command(phone_number):
+    # Send the first question
+    send_message(phone_number, "What is your name?")
+    
+def handle_form_message(phone_number, message):
+    if "name" not in form_mode[phone_number]:
+        # Save the name and send the next question
+        form_mode[phone_number]["name"] = message
+        send_message(phone_number, "What is your age?")
+    elif "age" not in form_mode[phone_number]:
+        # Save the age and send the next question or process form completion
+        form_mode[phone_number]["age"] = message
+        send_message(phone_number, "What is your qualification?")
+    elif "qualification" not in form_mode[phone_number]:
+        # Save the qualification and process form completion
+        form_mode[phone_number]["qualification"] = message
+        # Now you have all the form data, you can process it further
+        save_form_data(phone_number, form_mode[phone_number])
+
+# Function to save form data
+def save_form_data(phone_number, form_data):
+    form_db.insert_one({"phone_number": phone_number, "name": form_data["name"], "age": form_data["age"], "qualification": form_data["qualification"]})
+    # Once the data is saved, you can proceed with converting it to PDF and sending it
 
 def process_message(phone_number, message):
     global help_requested, questions, suggestion_counter, feedback_counter
@@ -490,7 +519,7 @@ def process_message(phone_number, message):
 
             # Send the response via WhatsApp
             send_message(number, answer)
-        except RateLimitError as e:
+        except Exception as e:
             print(f"Rate limit error: {str(e)}")
             send_message(phone_number, "/help is not available at the moment due to rate limit. Please try again later.")
             help_requested = False
@@ -730,9 +759,74 @@ def process_message(phone_number, message):
             print(e)
             print("Error in complaint mode")
 
+    elif message == "/mail":
+        mail_mode[phone_number] = True
+        # Get the user's data based on their phone number
+    elif mail_mode.get(phone_number, False):
+        staff_data = db.find_one({"phone_number": phone_number})
+
+        if staff_data:
+            branch = staff_data["branch"]
+            email = staff_data["email"]
+            
+            # Assuming you have the 'branch' and 'email' variables available
+            send_document(email, branch)
+            response = "Email sent successfully."            
+            send_message(phone_number, response)
+            mail_mode[phone_number] = False
+        else:
+            response = "User data not found."
+            send_message(phone_number, response)
+
+    elif message == "/form":
+        form_mode[phone_number] = True
+        form_data[phone_number] = {}
+        send_message(phone_number, "Please enter your name:")
+
+# Assuming subsequent messages should be treated as form responses
+    elif form_mode.get(phone_number, False):
+        data_2 = request.json
+        try:
+            if data_2['type'] == 'text':
+                received_message = data_2['text']
+                if 'name' not in form_data[phone_number]:
+                    form_data[phone_number]['name'] = received_message
+                    send_message(phone_number, "Please enter your age:")
+                elif 'age' not in form_data[phone_number]:
+                    form_data[phone_number]['age'] = received_message
+                    send_message(phone_number, "Please enter your qualification:")
+                elif 'qualification' not in form_data[phone_number]:
+                    form_data[phone_number]['qualification'] = received_message
+                    
+                    form_db.insert_one({
+                        "phone_number": phone_number, 
+                        "name": form_data[phone_number]["name"], 
+                        "age": form_data[phone_number]["age"], 
+                        "qualification": form_data[phone_number]["qualification"]
+                    })
+
+                    # Once all information is collected, fill the HTML form
+                    # html_content = fill_html_form(form_data[phone_number]['name'], form_data[phone_number]['age'], form_data[phone_number]['qualification'])
+                    
+                    # Convert HTML to PDF
+                    pdf_output_path = create_pdf(form_data[phone_number],phone_number)
+
+                    
+                    # Send the PDF to the user
+                    send_form_pdf(phone_number, pdf_output_path)
+                    
+                    # Reset form mode and data for the next form request
+                    form_mode[phone_number] = False
+                    del form_data[phone_number]
+                    
+                    # Confirmation message
+                    # send_message(phone_number, "Form sent successfully.")
+        except KeyError:
+            pass  # Handle if 'type' or 'text' key is not present in the received data
+
     else:        
         print(f"Received message: {message} from phone_number: {phone_number}")
-        
+            
         if message.strip() in ["Clerical", "Officer", "BM"]:
             print("Received position from user")
             # Handle the reply to the options message
@@ -824,14 +918,29 @@ def process_message(phone_number, message):
                     
                     loc = "E:\\NewProject\\Python\\Corprate App\\Question&AnswerBot\\After Modification\\Latest\\daily_bot_using_excel\\images"
                     image_path = upload_image(filename, loc)
-                    caption = data_1.get('text', '')
+                    # caption = data_1.get('text', '')
+                    # print("Received image caption:", caption)
+                    # if caption and ". " in caption:
+                    #     response_number = caption.split(". ", 1)
+                    #     print("Response Number:", response_number)
+                    #     print("Answer:", answer)
+                    # else:
+                    #     print("Caption is None or does not contain the delimiter '. '")
+                    #     # Provide a default value for response_number or handle the situation accordingly
+                    #     response_number = None  # Assigning a default value
+
+                    # Extract the caption and remove leading/trailing whitespace
+                    caption = data_1.get('text', '').strip()
                     print("Received image caption:", caption)
-                    if caption and ". " in caption:
-                        response_number, answer = caption.split(". ", 1)
-                        print(response_number)
-                        print(answer)
+                    # Check if the caption contains a valid question number
+                    if caption:
+                        try:
+                            response_number = int(caption)
+                            print("Response Number:", response_number)
+                        except ValueError:
+                            print("Invalid question number:", caption)
                     else:
-                        print("Caption is None or does not contain the delimiter '. '")
+                        print("Caption is empty or None")
 
 
                     question_id = int(response_number)
@@ -848,7 +957,7 @@ def process_message(phone_number, message):
                             update_query = {
                                 "$set": {
                                     "question_"+str(question_data["question_id"]): question_data["question_text"],
-                                    "answer_"+str(question_data["question_id"]): answer,
+                                    # "answer_"+str(question_data["question_id"]): answer,
                                     "answer_image_"+str(question_data["question_id"]): image_path
                                 }
                             }
@@ -861,7 +970,7 @@ def process_message(phone_number, message):
                                 "created_By": question_data["created_By"],
                                 "answered_by": number,
                                 "question_"+str(question_data["question_id"]): question_data["question_text"],
-                                "answer_"+str(question_data["question_id"]): answer,
+                                # "answer_"+str(question_data["question_id"]): answer,
                                 "answer_image_"+str(question_data["question_id"]): image_path
                             }
                             answers_db.insert_one(answer_data)

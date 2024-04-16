@@ -11,6 +11,7 @@ from pymongo import MongoClient, DESCENDING
 from dotenv import load_dotenv
 from messages import *
 from utils import retrieve_user_answers, send_excel_file
+from data import *
 from google.oauth2 import service_account
 import gspread
 import logging
@@ -59,8 +60,8 @@ app = Flask(__name__)
 openai.api_key = OPENAI_API_KEY
 app.config["MONGO_URI"] = MONGO_URI
 mongo = PyMongo(app)
-db = mongo.db.staff
 
+db = mongo.db.staff
 questions_db = mongo.db.questions
 answers_db = mongo.db.answers
 suggestion_db = mongo.db.suggestion
@@ -68,6 +69,7 @@ feedback_db = mongo.db.feedback
 chatgpt_db = mongo.db.chatgpt
 form_db = mongo.db.form_data
 user_queries_db = mongo.db.user_queries
+user_reviews_db = mongo.db.reviews
 
 if chatgpt_db is None:
     mongo.db.create_collection("chatgpt")
@@ -120,6 +122,24 @@ def upload_image(filename, loc):
         return f"{loc}/{filename}"
     
     return False
+
+
+def send_reply_button(contact_number, message, buttons):
+    payload = {
+    
+    "body": message,
+    "buttons": buttons
+    }
+
+    url = f"{API_URL}/api/v1/sendInteractiveButtonsMessage?whatsappNumber="+f"{contact_number}"
+    headers = {
+                'Authorization': ACCESS_TOKEN,
+                'Content-Type': 'application/json'
+            }
+    response = requests.request("POST", url, headers=headers, json=payload)
+    return response.status_code
+
+
 def open_spreadsheet():
     # Open the 'Daily_Questions' spreadsheet
     spreadsheet = client.open('Questions')
@@ -406,6 +426,7 @@ mail_mode = {}
 form_mode = {}
 form_data = {}
 user_in_question_creation_mode = {}
+review_mode = {}
 
 
 def search_for_question_answer(question_number, worksheet):
@@ -451,24 +472,182 @@ def handle_form_message(phone_number, message):
         # Now you have all the form data, you can process it further
         save_form_data(phone_number, form_mode[phone_number])
 
+# def handle_review():
+#     global review_mode
+#     print("Executing Review Questions function.....")
+#     # Get all staff members with an empty review_status
+#     staff_members = db.find({"review_status": ""})
+
+#     for staff_member in staff_members:
+#         phone_number = staff_member["phone_number"]
+#         print("Phone Number:", phone_number)
+        
+#         # Adding phone number to review_mode
+#         review_mode[phone_number] = True
+#         print("Review mode for", phone_number, "set to True")
+
+#         # Sending the review question
+#         send_reply_button(phone_number, "Have you done marketing today?\n", marketing_buttons)
+        
+#         # Update review_status to indicate that the question has been sent
+#         db.update_one({"_id": staff_member["_id"]}, {"$set": {"review_status": "sent"}})
+
+
+def handle_review():
+    global review_mode
+    print("Executing Review Questions function.....")
+    # Get all staff members with an empty review_status
+    staff_members = db.find({"review_status": ""})
+
+    for staff_member in staff_members:
+        phone_number = staff_member["phone_number"]
+        print("Phone Number:", phone_number)
+        
+        # Check if the question already exists
+        existing_question = user_reviews_db.find_one({"question_text": "Have you done marketing today?"})
+        if existing_question:
+            question_id = existing_question["_id"]
+        else:
+            # Insert the question into the questions collection
+            question_id = user_reviews_db.insert_one({"question_text": "Have you done marketing today?"}).inserted_id
+
+        # Adding phone number to review_mode
+        review_mode[phone_number] = {"question_id": question_id}
+        print("Review mode for", phone_number, "set to True")
+
+        # Sending the review question
+        send_reply_button(phone_number, "Have you done marketing today?\n", marketing_buttons)
+        
+        # Update review_status to indicate that the question has been sent
+        db.update_one({"_id": staff_member["_id"]}, {"$set": {"review_status": "sent"}})
+scheduler.add_job(handle_review, trigger=CronTrigger(hour=11, minute=30))
+
+# Function to handle user responses to questions
+def process_review_response(phone_number, received_message):
+    # Check if the "Have you done marketing today?" question already exists
+    existing_question1 = user_reviews_db.find_one({"question_text": "Have you done marketing today?"})
+    if existing_question1:
+        question_id1 = existing_question1["_id"]
+    else:
+        # Insert the "Have you done marketing today?" question into the questions collection
+        question_id1 = user_reviews_db.insert_one({"question_text": "Have you done marketing today?"}).inserted_id
+
+    # Update the document with the corresponding question ID in the responses array for the first question
+    user_reviews_db.update_one(
+        {"_id": question_id1},
+        {"$push": {"responses": {"answered_by": phone_number, "answer": received_message}}},
+        upsert=True
+    )
+def process_review_response1(phone_number, received_message):
+    # Check if the "How many people have you met?" question already exists
+    existing_question2 = user_reviews_db.find_one({"question_text": "How many people have you met?"})
+    if existing_question2:
+        question_id2 = existing_question2["_id"]
+    else:
+        # Insert the "How many people have you met?" question into the questions collection
+        question_id2 = user_reviews_db.insert_one({"question_text": "How many people have you met?"}).inserted_id
+
+    # Update the document with the corresponding question ID in the responses array for the second question
+    user_reviews_db.update_one(
+        {"_id": question_id2},
+        {"$push": {"responses": {"answered_by": phone_number, "answer": received_message}}},
+        upsert=True
+    )
+
+def process_review_response2(phone_number, image_path):
+    # Check if the "How many people have you met?" question already exists
+    existing_question3 = user_reviews_db.find_one({"question_text": "Please share a photo of your marketing."})
+    if existing_question3:
+        question_id3 = existing_question3["_id"]
+    else:
+        # Insert the "How many people have you met?" question into the questions collection
+        question_id3 = user_reviews_db.insert_one({"question_text": "Please share a photo of your marketing."}).inserted_id
+
+    # Update the document with the corresponding question ID in the responses array for the second question
+    user_reviews_db.update_one(
+        {"_id": question_id3},
+        {"$push": {"responses": {"answered_by": phone_number, "image_path": image_path}}},
+        upsert=True
+    )
+
+def process_review_response3(phone_number, received_message):
+    # Check if the "Have you done marketing today?" question already exists
+    existing_question4 = user_reviews_db.find_one({"question_text": "Suggest me some good way to marketing ?"})
+    if existing_question4:
+        question_id4 = existing_question4["_id"]
+    else:
+        # Insert the "Have you done marketing today?" question into the questions collection
+        question_id4 = user_reviews_db.insert_one({"question_text": "Suggest me some good way to marketing ?"}).inserted_id
+
+    # Update the document with the corresponding question ID in the responses array for the first question
+    user_reviews_db.update_one(
+        {"_id": question_id4},
+        {"$push": {"responses": {"answered_by": phone_number, "answer": received_message}}},
+        upsert=True
+    )
+
+
 # Function to save form data
 def save_form_data(phone_number, form_data):
     form_db.insert_one({"phone_number": phone_number, "name": form_data["name"], "age": form_data["age"], "qualification": form_data["qualification"]})
     # Once the data is saved, you can proceed with converting it to PDF and sending it
 
 def process_message(phone_number, message):
-    global help_requested, questions, suggestion_counter, feedback_counter
+    global help_requested, review_mode, questions, suggestion_counter, feedback_counter
     # global global_questions
-    questions = {}    
+    questions = {} 
+      
+    print("Review Mode", review_mode)
+    data_4 = request.json
+    message_type = data_4.get('type')
 
-    if message.startswith("/create"):
+    if message_type == 'image':
+        # Handle image type message
+        print("Received an image type message")
+        # Add your image handling logic here
+        if review_mode:
+            print("Mode IN", review_mode)
+            # Check if the message is a response to the review question
+            data_2 = request.json
+            print("Data", data_2)
+            try:
+                number = data_2['waId']
+                print("Phone Number", number)
+
+                received_message = data_2['text']  # Convert the message to lowercase for case insensitivity
+                print("Received Text", received_message)
+
+                if review_mode.get(phone_number) == "waiting_for_image":
+                        data_2['type'] == 'image'
+                        print("Full request data:", data_2)
+                        incoming_image = data_2.get('data')
+                        print("Received Incoming Image:", incoming_image)
+                        filename = re.findall("data.+", data_2['data'])[0]  # Extract the filename
+                        # filename = "generated_filename.jpg"
+                        print("Generated image filename:", filename)
+                        if not allowed_file(filename):
+                            raise Exception("Invalid file type.")
+                        
+                        loc = "E:\\NewProject\\Python\\Corprate App\\Question&AnswerBot\\After Modification\\Latest\\daily_bot_using_excel\\Review_images"
+                        image_path = upload_image(filename, loc)
+                        process_review_response2(phone_number, image_path)
+                        send_message(phone_number, "Suggest me some good way to marketing ?")
+                        review_mode[phone_number] = "waiting_for_comment"
+
+                else:
+                    # Handle invalid responses
+                    send_message(phone_number, "Please upload an image.")
+            except Exception as e:
+                print(e)
+                print("Error processing review response")
+
+    elif message.startswith("/create"):
         user = db.find_one({"phone_number": phone_number})
         if user and user.get("position") in ["BM", "RM"]:
             user_in_question_creation_mode[phone_number] = True
             print(f"User {phone_number} entered question creation mode.")
-            # send_message(phone_number, "You are now in question creation mode. Send your questions one by one.")
-            options_message = "What type of question do you going to create?\n1. Yes or No\n2. Text\n3. Image Upload"
-            send_message(phone_number, options_message)
+            send_message(phone_number, "You are now in question creation mode. Send your questions one by one.")
+            
             # Check if the user has an active sheet, create one if not
             if phone_number not in active_sheets:
                 spreadsheet, worksheet, worksheet_name = open_spreadsheet()
@@ -778,6 +957,56 @@ def process_message(phone_number, message):
         else:
             response = "User data not found."
             send_message(phone_number, response)
+
+    
+    # elif review_mode.get(phone_number, False):
+    elif review_mode:
+        print("Mode IN", review_mode)
+        # Check if the message is a response to the review question
+        data_2 = request.json
+        print("Data", data_2)
+        try:
+            number = data_2['waId']
+            print("Phone Number", number)
+
+            received_message = data_2['text']  # Convert the message to lowercase for case insensitivity
+            print("Received Text", received_message)
+
+            if received_message in ["Yes", "No"]:
+
+                process_review_response(phone_number, received_message)
+                # Handle the response (you can send another question here)
+                send_message(phone_number, "How many people have you met?")
+                review_mode[phone_number] = "waiting_for_number"
+
+            elif review_mode.get(phone_number) == "waiting_for_number":
+                try:
+                    received_message = int(received_message)
+                    process_review_response1(phone_number, received_message)
+                    send_message(phone_number, "Please share a photo of your marketing.")
+                    review_mode[phone_number] = "waiting_for_image"
+                except ValueError:
+                    # Handle the case where the received message is not a valid number
+                    send_message(phone_number, "Please respond with a valid number.")
+            
+            elif review_mode.get(phone_number) == "waiting_for_comment":
+                if received_message:
+                    comment = received_message
+                    process_review_response3(phone_number, received_message)
+                    send_message(phone_number, "Thank You.")
+                    review_mode[phone_number] = False
+                else:
+                    # Handle the case where the received message is not a valid number
+                    send_message(phone_number, "Please send valid message.")
+
+            else:
+                # Handle invalid responses
+                send_message(phone_number, "Please respond with 'Yes' or 'No'.")
+        except Exception as e:
+            print(e)
+            print("Error processing review response")
+
+
 
     elif message == "/form":
         form_mode[phone_number] = True
@@ -1097,7 +1326,9 @@ if __name__ == '__main__':
     scheduler.add_job(generate_report, trigger=CronTrigger(hour=18, minute=10))
 
     # Schedule the task to send new questions periodically
-    # scheduler.add_job(send_new_questions_periodically, IntervalTrigger(minutes=2))
+    scheduler.add_job(send_new_questions_periodically, IntervalTrigger(minutes=2))
+
+    # scheduler.add_job(handle_review, IntervalTrigger(minutes=2))
 
     # scheduler.add_job(send_reminder_to_staff_with_no_answers, trigger=CronTrigger(hour=15, minute=16))
 

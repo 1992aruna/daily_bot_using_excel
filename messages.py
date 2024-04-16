@@ -93,9 +93,6 @@ def send_images(contact_number,option):
 
 ## ------------------------------------- --------------------------------------------------------------------------------------------------------##         
         
-
-    
-
 def send_reply_button(contact_number, message, buttons):
     payload = {
     
@@ -110,6 +107,10 @@ def send_reply_button(contact_number, message, buttons):
             }
     response = requests.request("POST", url, headers=headers, json=payload)
     return response.status_code
+
+    
+
+
 
 def send_list(contact_number, message, sections):
     url = f"{API_URL}/api/v1/sendInteractiveListMessage?whatsappNumber={contact_number}"

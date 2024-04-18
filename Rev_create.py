@@ -29,7 +29,7 @@ import pymongo
 #   ext=filename.split(".")[-1]
 #   if ext in allowed_extensions:
 #       return True
-
+processed_message_ids = set()
 def allowed_file(filename):
     ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'doc', 'docx', 'mp4', 'mp3'}
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -123,22 +123,16 @@ def upload_image(filename, loc):
     
     return False
 
-# def send_reply_button(contact_number, message, buttons):
-#     payload = {
-    
-#     "body": message,
-#     "buttons": buttons
-#     }
+def send_question_message(contact_number, message):
+	headers = {
+					'Authorization': ACCESS_TOKEN,
+				}
+	payload={'messageText': message}
 
-#     url = f"{API_URL}/api/v1/sendInteractiveButtonsMessage?whatsappNumber="+f"{contact_number}"
-#     headers = {
-#                 'Authorization': ACCESS_TOKEN,
-#                 'Content-Type': 'application/json'
-#             }
-#     response = requests.request("POST", url, headers=headers, json=payload)
-#     print("Reply response", response)
-#     print("Reply Payload", payload)
-#     return response.status_code
+	url = f"{API_URL}/api/v1/sendSessionMessage/"+ f'{contact_number}'
+	response = requests.post(url=url, headers=headers,data=payload)
+	pending_questions[contact_number] = message
+
 def send_reply_button(contact_number, message, buttons):
     payload = {
         "body": message,
@@ -157,6 +151,21 @@ def send_reply_button(contact_number, message, buttons):
     pending_questions[contact_number] = message
     # Return the message/question for further processing
     # return message
+
+def send_reply_button1(contact_number, message, buttons):
+    payload = {
+    
+    "body": message,
+    "buttons": buttons
+    }
+
+    url = f"{API_URL}/api/v1/sendInteractiveButtonsMessage?whatsappNumber="+f"{contact_number}"
+    headers = {
+                'Authorization': ACCESS_TOKEN,
+                'Content-Type': 'application/json'
+            }
+    response = requests.request("POST", url, headers=headers, json=payload)
+    return response.status_code
 
 def send_list(contact_number, message, sections):
     url = f"{API_URL}/api/v1/sendInteractiveListMessage?whatsappNumber={contact_number}"
@@ -497,11 +506,21 @@ def send_branch_images(documents, questions):
                                     question = send_reply_button(phone_number, None, answer_buttons)
                                 # Send question with yes or no buttons
                                 send_reply_button(phone_number, question, answer_buttons)
-                            else:
+
+                            elif question_type == "Image Upload":
                                 # Send regular text question
-                                send_message(phone_number, question)
+                                send_question_message(phone_number, question)
                                 print(f"Question sent for branch {branch} phone number {phone_number}")
 
+                            elif question_type == "Text":
+                                # Send regular text question
+                                send_question_message(phone_number, question)
+                                print(f"Question sent for branch {branch} phone number {phone_number}")
+
+                            else:
+                                # Send regular text question
+                                send_question_message(phone_number, question)
+                                print(f"Question sent for branch {branch} phone number {phone_number}")
 
                         db.update_one({"_id": staff["_id"]}, {"$set": {"status": "sent"}})
 
@@ -522,9 +541,15 @@ def send_branch_images(documents, questions):
                                         question = send_reply_button(alternate_phone_number, None, answer_buttons)
                                     # Send question with yes or no buttons
                                     send_reply_button(alternate_phone_number, question, answer_buttons)
+
+                                elif question_type == "Image Upload":
+                                    # Send regular text question
+                                    send_question_message(alternate_phone_number, question)
+                                    print(f"Question sent for branch {branch} phone number {alternate_phone_number}")
+
                                 else:
                                     # Send regular text question
-                                    send_message(alternate_phone_number, question)
+                                    send_question_message(alternate_phone_number, question)
                                     print(f"Question sent for branch {branch} to alternate phone number {alternate_phone_number}")
 
                             db.update_one({"_id": staff["_id"]}, {"$set": {"status": "sent"}})
@@ -658,7 +683,7 @@ def process_message(phone_number, message):
             user_in_question_creation_mode[phone_number] = {"question_type": None}  # Initialize question type
             user_in_question_creation_mode[phone_number]["in_creation_mode"] = True
             print(f"User {phone_number} entered question creation mode.")
-            options_message = "What type of question do you want to create?"
+            # options_message = "What type of question do you want to create?"
             send_list(phone_number, "Select Question Type", type_list)
             if phone_number not in active_sheets:
                 spreadsheet, worksheet, worksheet_name = open_spreadsheet()
@@ -672,8 +697,9 @@ def process_message(phone_number, message):
         if message.strip() == "/end":
             send_message(phone_number, "Question creation mode ended.")
             user_in_question_creation_mode[phone_number]["in_creation_mode"] = False
-            options_message = "To whom do you want to send the questions?\n1. Clerical\n2. Officer\n3. BM"
-            send_message(phone_number, options_message)
+            # options_message = "To whom do you want to send the questions?\n1. Clerical\n2. Officer\n3. BM"
+            # send_message(phone_number, options_message)
+            send_list(phone_number, "To whom you want to send\n", position_list)
         else:
             if user_in_question_creation_mode[phone_number]["question_type"] is None:
                 # Check if the message is a valid option for question type
@@ -804,14 +830,12 @@ def process_message(phone_number, message):
         user_in_question_mode[phone_number] = False
         response1 = "You question mode ended."
         send_message(phone_number, response1)
-
     
     elif message == "/suggestion":
         suggestion_mode[phone_number] = True
         response = "You are now in suggestion mode. Send your suggestion."
         send_message(phone_number, response)
-        # global suggestion_mode
-        
+        # global suggestion_mode        
 
     # Assuming subsequent messages should be treated as suggestions
     elif suggestion_mode.get(phone_number, False):
@@ -1061,45 +1085,26 @@ def process_message(phone_number, message):
 
                 if data_1['type'] == 'text':
                     incoming_message = data_1['text']
-                    print(incoming_message)
-
-                    response_number, answer = incoming_message.split(". ", 1)
-                    print(response_number)
-                    print(answer)
-
-                    question_id = int(response_number)
-                    print(question_id)
-                    question_data = questions_db.find_one({"question_id": question_id})
-
-                    if question_data:
-                        # Check if an entry with the same "answered_by" and "created_By" values exists
-                        existing_entry = answers_db.find_one({"answered_by": number, "created_By": question_data["created_By"]})
-
-                        if existing_entry:
-                            # If the same "answered_by" and "created_By" values exist, update the existing entry
-                            filter_query = {"answered_by": number, "created_By": question_data["created_By"]}
-                            update_query = {
-                                "$set": {
-                                    "question_"+str(question_data["question_id"]): question_data["question_text"],
-                                    "answer_"+str(question_data["question_id"]): answer
-                                }
-                            }
-                            answers_db.update_one(filter_query, update_query)
-
-                            return jsonify({"status": "success", "message": "Answer updated."}), 200
-                        else:
-                            # If no entry with the same "answered_by" and "created_By" values exists, insert a new one
-                            answer_data = {
-                                "created_By": question_data["created_By"],
-                                "answered_by": number,
-                                "question_"+str(question_data["question_id"]): question_data["question_text"],
-                                "answer_"+str(question_data["question_id"]): answer
-                            }
-                            answers_db.insert_one(answer_data)
-
-                            return jsonify({"status": "success", "message": "Answer recorded."}), 200
+                    print("Incoming Message:", incoming_message)
+                    
+                    # Retrieve the pending question for this phone number
+                    if phone_number in pending_questions:
+                        question_text = pending_questions[phone_number]
+                        print("Question Text:", question_text)
+                        
+                        # Construct the answer data
+                        answer_data = {
+                            "phone_number": phone_number,
+                            "question_text": question_text,
+                            "answer_text": incoming_message
+                        }
+                        
+                        # Insert the answer data into the database
+                        answers_db.insert_one(answer_data)
+                        # Remove the pending question from the dictionary
+                        del pending_questions[phone_number]
                     else:
-                        return jsonify({"status": "error", "message": "Invalid question number. Please try again."}), 400
+                        print("No pending question found for phone number:", phone_number)
                 elif data_1['type'] == 'interactive':
                     incoming_message = data_1['text']
                     print("Incoming Message:", incoming_message)
@@ -1118,7 +1123,6 @@ def process_message(phone_number, message):
                         
                         # Insert the answer data into the database
                         answers_db.insert_one(answer_data)
-                        
                         # Remove the pending question from the dictionary
                         del pending_questions[phone_number]
                     else:
@@ -1137,67 +1141,28 @@ def process_message(phone_number, message):
                     
                     loc = "E:\\NewProject\\Python\\Corprate App\\Question&AnswerBot\\After Modification\\Latest\\daily_bot_using_excel\\images"
                     image_path = upload_image(filename, loc)
-                    # caption = data_1.get('text', '')
-                    # print("Received image caption:", caption)
-                    # if caption and ". " in caption:
-                    #     response_number = caption.split(". ", 1)
-                    #     print("Response Number:", response_number)
-                    #     print("Answer:", answer)
-                    # else:
-                    #     print("Caption is None or does not contain the delimiter '. '")
-                    #     # Provide a default value for response_number or handle the situation accordingly
-                    #     response_number = None  # Assigning a default value
-
-                    # Extract the caption and remove leading/trailing whitespace
-                    caption = data_1.get('text', '').strip()
-                    print("Received image caption:", caption)
-                    # Check if the caption contains a valid question number
-                    if caption:
-                        try:
-                            response_number = int(caption)
-                            print("Response Number:", response_number)
-                        except ValueError:
-                            print("Invalid question number:", caption)
+                    
+                    # Retrieve the pending question for this phone number
+                    if phone_number in pending_questions:
+                        question_text = pending_questions[phone_number]
+                        print("Question Text:", question_text)
+                        
+                        # Construct the answer data
+                        answer_data = {
+                            "phone_number": phone_number,
+                            "question_text": question_text,
+                            "answer_image": image_path
+                        }
+                        
+                        # Insert the answer data into the database
+                        answers_db.insert_one(answer_data)
+                        # Remove the pending question from the dictionary
+                        del pending_questions[phone_number]
                     else:
-                        print("Caption is empty or None")
+                        print("No pending question found for phone number:", phone_number)
+                else:
+                    return jsonify({"status": "error", "message": "Invalid question number. Please try again."}), 400
 
-
-                    question_id = int(response_number)
-                    print(question_id)
-                    question_data = questions_db.find_one({"question_id": question_id})
-
-                    if question_data:
-                        # Check if an entry with the same "answered_by" and "created_By" values exists
-                        existing_entry = answers_db.find_one({"answered_by": number, "created_By": question_data["created_By"]})
-
-                        if existing_entry:
-                            # If the same "answered_by" and "created_By" values exist, update the existing entry
-                            filter_query = {"answered_by": number, "created_By": question_data["created_By"]}
-                            update_query = {
-                                "$set": {
-                                    "question_"+str(question_data["question_id"]): question_data["question_text"],
-                                    # "answer_"+str(question_data["question_id"]): answer,
-                                    "answer_image_"+str(question_data["question_id"]): image_path
-                                }
-                            }
-                            answers_db.update_one(filter_query, update_query)
-
-                            return jsonify({"status": "success", "message": "Answer updated."}), 200
-                        else:
-                            # If no entry with the same "answered_by" and "created_By" values exists, insert a new one
-                            answer_data = {
-                                "created_By": question_data["created_By"],
-                                "answered_by": number,
-                                "question_"+str(question_data["question_id"]): question_data["question_text"],
-                                # "answer_"+str(question_data["question_id"]): answer,
-                                "answer_image_"+str(question_data["question_id"]): image_path
-                            }
-                            answers_db.insert_one(answer_data)
-
-                            return jsonify({"status": "success", "message": "Answer recorded."}), 200
-                    else:
-                        return jsonify({"status": "error", "message": "Invalid question number. Please try again."}), 400
- 
 
             except Exception as e:
                 print(e)
@@ -1264,15 +1229,6 @@ def send_file(phone_number):
     send_excel_file(phone_number, file_path, caption)
 
 allowed_extensions=["png", "jpg", "jpeg"]
-
-# def process_input_message(phone_number, message):
-#     valid_formats = ['/create', '/help', '/ask', '/end']
-
-#     if not any(message.startswith(format) or message.lower() == format for format in valid_formats) and not message.startswith(tuple(['/{}.'.format(i) for i in range(10)])):
-#         alert_message = "Please use one of the valid formats: /create, /help, /ask, /end, {question_id}. {something}"
-#         send_message(phone_number, alert_message)
-#     else:
-#         print("Valid input")
     
 @app.route('/')
 def home():
@@ -1285,7 +1241,17 @@ def connetwebhook():
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
+
     try:
+        message_id = request.json.get('id')
+
+        # Check if the message has already been processed
+        
+        if message_id in processed_message_ids:
+            print(f"Message with ID {message_id} has already been processed. Skipping...")
+            return jsonify({'message': 'Webhook skipped because message already processed'}), 200
+        else:
+            processed_message_ids.add(message_id)
         # Extract message details from request
         json_data = request.json
         print(f"Received POST request with JSON: {json_data}")
@@ -1297,7 +1263,11 @@ def webhook():
         # Check if the message is a list reply
         list_reply = json_data.get('listReply')
         if list_reply:
-            message = list_reply.get('title')  # Use the title from the listReply as the message
+            message = list_reply.get('title')
+
+        # Check if the message is an image reply
+        if json_data.get('type') == 'image':
+            message = json_data.get('data')  # Use the data from the image as the message
 
         print(f"Received POST request with message: {message} and phone number: {phone_number}")
 
@@ -1309,7 +1279,6 @@ def webhook():
     except Exception as e:
         logging.exception("An error occurred: %s", e)
         return jsonify({'error': str(e)}), 500
-
 
 
 if __name__ == '__main__': 

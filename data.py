@@ -16,3 +16,13 @@ type_list = [
         ]
     }
 ]
+position_list = [
+    {
+        "title": "To whom you want to send",
+        "rows": [
+            {"title": "Clerical"},
+            {"title": "Officer"},
+            {"title": "BM"}
+        ]
+    }
+]

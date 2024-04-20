@@ -23,6 +23,7 @@ import openai
 from bson import ObjectId
 import pymongo
 
+
 # allowed_extensions=["png", "jpg", "jpeg", "mp4", "mp3", "pdf"]
 
 # def allowed_file(filename):
@@ -66,6 +67,7 @@ questions_db = mongo.db.questions
 answers_db = mongo.db.answers
 suggestion_db = mongo.db.suggestion
 feedback_db = mongo.db.feedback
+complaint_db = mongo.db.complaint
 chatgpt_db = mongo.db.chatgpt
 form_db = mongo.db.form_data
 user_queries_db = mongo.db.user_queries
@@ -636,7 +638,7 @@ def save_form_data(phone_number, form_data):
     # Once the data is saved, you can proceed with converting it to PDF and sending it
 
 def process_message(phone_number, message):
-    global help_requested, questions, suggestion_counter, feedback_counter
+    global help_requested, questions, suggestion_counter, feedback_counter, complaint_counter
     # global global_questions
     questions = {}    
 
@@ -852,27 +854,40 @@ def process_message(phone_number, message):
                 staff_data = db.find_one({"phone_number": number})
 
                 if staff_data:
-                    # Check if a suggestion with the same phone number already exists
-                    existing_suggestion = suggestion_db.find_one({"phone_number": number})
+                    last_suggestion = suggestion_db.find_one({"phone_number": number}, sort=[("suggestion_no", -1)])
+                    last_suggestion_no = last_suggestion["suggestion_no"] if last_suggestion else "1000000"
 
-                    if existing_suggestion:
-                        # Update the existing suggestion
-                        suggestion_db.update_one(
-                            {"phone_number": number},
-                            {"$set": {"suggestion_" + str(suggestion_counter): received_message}}
-                        )
+                    # # Increment the last suggestion number and generate the new suggestion number
+                    # new_suggestion_no = str(int(last_suggestion_no) + 1)
+
+                    # Extract the number part from last_suggestion_no and convert it to an integer
+                    if last_suggestion_no.startswith("S_"):
+                        last_suggestion_number = int(last_suggestion_no.split("_")[1])
                     else:
-                        # Insert a new suggestion
-                        suggestion_data = {
-                            "name": staff_data.get("name", ""),
-                            "position": staff_data.get("position", ""),                         
-                            "branch": staff_data.get("branch", ""),                       
-                            "phone_number": staff_data.get("phone_number", ""),
-                            "suggestion_" + str(suggestion_counter): received_message
-                        }
-                        suggestion_db.insert_one(suggestion_data)
+                        last_suggestion_number = int(last_suggestion_no)
 
-            suggestion_counter += 1
+                    # If it's the first suggestion, start with 10000001
+                    if last_suggestion_number < 1000001:
+                        new_suggestion_number = 1000001
+                    else:
+                        # Increment the suggestion number
+                        new_suggestion_number = last_suggestion_number + 1
+
+                    # Construct the new suggestion number with the "S_" prefix
+                    new_suggestion_no = f"S_{new_suggestion_number}"
+
+                    # Create the suggestion data
+                    suggestion_data = {
+                        "suggestion_no": new_suggestion_no,
+                        "name": staff_data.get("name", ""),
+                        "position": staff_data.get("position", ""),                         
+                        "branch": staff_data.get("branch", ""),                       
+                        "phone_number": staff_data.get("phone_number", ""),
+                        "suggestion": received_message
+                    }
+                    suggestion_db.insert_one(suggestion_data)
+
+            # suggestion_counter += 1
             suggestion_mode[phone_number] = False
             send_message(phone_number, "Suggestion mode ended.")
         except Exception as e:
@@ -901,27 +916,35 @@ def process_message(phone_number, message):
                 staff_data = db.find_one({"phone_number": number})
 
                 if staff_data:
-                    # Check if a feedback with the same phone number already exists
-                    existing_feedback = feedback_db.find_one({"phone_number": number})
+                    last_feedback = feedback_db.find_one({"phone_number": number}, sort=[("feedback_no", -1)])
+                    last_feedback_no = last_feedback["feedback_no"] if last_feedback else "1000000"
 
-                    if existing_feedback:
-                        # Update the existing feedback
-                        feedback_db.update_one(
-                            {"phone_number": number},
-                            {"$set": {"feedback_" + str(feedback_counter): received_message_1}}
-                        )
+                    if last_feedback_no.startswith("S_"):
+                        last_feedback_number = int(last_feedback_no.split("_")[1])
                     else:
-                        # Insert a new feedback
-                        feedback_data = {
-                            "name": staff_data.get("name", ""),
-                            "position": staff_data.get("position", ""),                         
-                            "branch": staff_data.get("branch", ""),                       
-                            "phone_number": staff_data.get("phone_number", ""),
-                            "feedback_" + str(feedback_counter): received_message_1
-                        }
-                        feedback_db.insert_one(feedback_data)
+                        last_feedback_number = int(last_feedback_no)
 
-                    feedback_counter += 1
+                    # If it's the first feedback, start with 10000001
+                    if last_feedback_number < 1000001:
+                        new_feedback_number = 1000001
+                    else:
+                        # Increment the feedback number
+                        new_feedback_number = last_feedback_number + 1
+
+                    # Construct the new feedback number with the "S_" prefix
+                    new_feedback_no = f"F_{new_feedback_number}"
+
+                    feedback_data = {
+                        "feedback_no": new_feedback_no,
+                        "name": staff_data.get("name", ""),
+                        "position": staff_data.get("position", ""),                         
+                        "branch": staff_data.get("branch", ""),                       
+                        "phone_number": staff_data.get("phone_number", ""),
+                        "feedback": received_message_1
+                    }
+                    feedback_db.insert_one(feedback_data)
+
+                    # feedback_counter += 1
                     feedback_mode[phone_number] = False
                     send_message(phone_number, "Feedback mode ended.")
         except Exception as e:
@@ -950,27 +973,35 @@ def process_message(phone_number, message):
                 staff_data = db.find_one({"phone_number": number})
 
                 if staff_data:
-                    # Check if a feedback with the same phone number already exists
-                    existing_feedback = feedback_db.find_one({"phone_number": number})
+                    last_complaint = complaint_db.find_one({"phone_number": number}, sort=[("complaint_no", -1)])
+                    last_complaint_no = last_complaint["complaint_no"] if last_complaint else "1000000"
 
-                    if existing_feedback:
-                        # Update the existing feedback
-                        feedback_db.update_one(
-                            {"phone_number": number},
-                            {"$set": {"feedback_" + str(feedback_counter): received_message_1}}
-                        )
+                    if last_complaint_no.startswith("S_"):
+                        last_complaint_number = int(last_complaint_no.split("_")[1])
                     else:
-                        # Insert a new feedback
-                        feedback_data = {
-                            "name": staff_data.get("name", ""),
-                            "position": staff_data.get("position", ""),                         
-                            "branch": staff_data.get("branch", ""),                       
-                            "phone_number": staff_data.get("phone_number", ""),
-                            "feedback_" + str(feedback_counter): received_message_1
-                        }
-                        feedback_db.insert_one(feedback_data)
+                        last_complaint_number = int(last_complaint_no)
 
-                    feedback_counter += 1
+                    # If it's the first complaint, start with 10000001
+                    if last_complaint_number < 1000001:
+                        new_complaint_number = 1000001
+                    else:
+                        # Increment the complaint number
+                        new_complaint_number = last_complaint_number + 1
+
+                    # Construct the new complaint number with the "S_" prefix
+                    new_complaint_no = f"C_{new_complaint_number}"
+                    
+                    complaint_data = {
+                        "complaint_no": new_complaint_no,
+                        "name": staff_data.get("name", ""),
+                        "position": staff_data.get("position", ""),                         
+                        "branch": staff_data.get("branch", ""),                       
+                        "phone_number": staff_data.get("phone_number", ""),
+                        "complaint": received_message_1
+                    }
+                    complaint_db.insert_one(complaint_data)
+
+                    # complaint_counter += 1
                     complaint_mode[phone_number] = False
                     send_message(phone_number, "Complaint mode ended.")
         except Exception as e:
@@ -1091,12 +1122,14 @@ def process_message(phone_number, message):
                     if phone_number in pending_questions:
                         question_text = pending_questions[phone_number]
                         print("Question Text:", question_text)
-                        
+                        current_date = datetime.date.today()
+                        created_date = current_date.strftime("%Y-%m-%d")
                         # Construct the answer data
                         answer_data = {
                             "phone_number": phone_number,
                             "question_text": question_text,
-                            "answer_text": incoming_message
+                            "answer_text": incoming_message,
+                            "created_at": created_date
                         }
                         
                         # Insert the answer data into the database
@@ -1113,12 +1146,14 @@ def process_message(phone_number, message):
                     if phone_number in pending_questions:
                         question_text = pending_questions[phone_number]
                         print("Question Text:", question_text)
-                        
+                        current_date = datetime.date.today()
+                        created_date = current_date.strftime("%Y-%m-%d")
                         # Construct the answer data
                         answer_data = {
                             "phone_number": phone_number,
                             "question_text": question_text,
-                            "answer_text": incoming_message
+                            "answer_text": incoming_message,
+                            "created_at": created_date
                         }
                         
                         # Insert the answer data into the database
@@ -1146,12 +1181,14 @@ def process_message(phone_number, message):
                     if phone_number in pending_questions:
                         question_text = pending_questions[phone_number]
                         print("Question Text:", question_text)
-                        
+                        current_date = datetime.date.today()
+                        created_date = current_date.strftime("%Y-%m-%d")
                         # Construct the answer data
                         answer_data = {
                             "phone_number": phone_number,
                             "question_text": question_text,
-                            "answer_image": image_path
+                            "answer_image": image_path,
+                            "created_at": created_date
                         }
                         
                         # Insert the answer data into the database

@@ -11,7 +11,6 @@ from pymongo import MongoClient, DESCENDING
 from dotenv import load_dotenv
 from messages import *
 from utils import retrieve_user_answers, send_excel_file
-from data import *
 from google.oauth2 import service_account
 import gspread
 import logging
@@ -23,14 +22,13 @@ import openai
 from bson import ObjectId
 import pymongo
 
-
 # allowed_extensions=["png", "jpg", "jpeg", "mp4", "mp3", "pdf"]
 
 # def allowed_file(filename):
 #   ext=filename.split(".")[-1]
 #   if ext in allowed_extensions:
 #       return True
-processed_message_ids = set()
+
 def allowed_file(filename):
     ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'doc', 'docx', 'mp4', 'mp3'}
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -67,7 +65,6 @@ questions_db = mongo.db.questions
 answers_db = mongo.db.answers
 suggestion_db = mongo.db.suggestion
 feedback_db = mongo.db.feedback
-complaint_db = mongo.db.complaint
 chatgpt_db = mongo.db.chatgpt
 form_db = mongo.db.form_data
 user_queries_db = mongo.db.user_queries
@@ -109,7 +106,6 @@ def get_media(filename):
 
     response = requests.get(url, headers=headers, data=payload)
     return response
-
 def upload_image(filename, loc):
     response= get_media(filename)
     filename=filename.split("/")[-1]
@@ -124,75 +120,6 @@ def upload_image(filename, loc):
         return f"{loc}/{filename}"
     
     return False
-
-def send_question_message(contact_number, message):
-	headers = {
-					'Authorization': ACCESS_TOKEN,
-				}
-	payload={'messageText': message}
-
-	url = f"{API_URL}/api/v1/sendSessionMessage/"+ f'{contact_number}'
-	response = requests.post(url=url, headers=headers,data=payload)
-	pending_questions[contact_number] = message
-
-def send_reply_button(contact_number, message, buttons):
-    # Create a function to add question ID prefix to the button text
-    def add_question_id(question_id, button_text):
-        return f"{question_id}. {button_text}"
-
-    # Add question ID to each button text
-    buttons_with_id = [{'text': add_question_id(message.split('.')[0], button['text'])} for button in buttons]
-
-    payload = {
-        "body": message,
-        "buttons": buttons_with_id
-    }
-
-    url = f"{API_URL}/api/v1/sendInteractiveButtonsMessage?whatsappNumber={contact_number}"
-    headers = {
-        'Authorization': ACCESS_TOKEN,
-        'Content-Type': 'application/json'
-    }
-    response = requests.post(url, headers=headers, json=payload)
-    print("Reply response", response)
-    print("Reply Payload", payload)
-    # return response.status_code    
-    pending_questions[contact_number] = message
-    # Return the message/question for further processing
-    # return message
-
-def send_reply_button1(contact_number, message, buttons):
-    payload = {
-    
-    "body": message,
-    "buttons": buttons
-    }
-
-    url = f"{API_URL}/api/v1/sendInteractiveButtonsMessage?whatsappNumber="+f"{contact_number}"
-    headers = {
-                'Authorization': ACCESS_TOKEN,
-                'Content-Type': 'application/json'
-            }
-    response = requests.request("POST", url, headers=headers, json=payload)
-    return response.status_code
-
-def send_list(contact_number, message, sections):
-    url = f"{API_URL}/api/v1/sendInteractiveListMessage?whatsappNumber={contact_number}"
-    payload = {
-         "body": message,
-         "buttonText": "Select",
-         "sections": sections
-    }
-
-    headers = {
-                'Authorization': ACCESS_TOKEN,
-                'Content-Type': 'application/json'
-            }
-    response = requests.request("POST", url, headers=headers, json=payload)
-    print(response)
-    print(response.json())
-
-#-------------------------------------------------------------------------------------------------------#
 def open_spreadsheet():
     # Open the 'Daily_Questions' spreadsheet
     spreadsheet = client.open('Questions')
@@ -213,99 +140,51 @@ def get_latest_question_id():
     latest_question = questions_collection.find_one({}, sort=[("question_id", pymongo.DESCENDING)])
     return latest_question["question_id"] if latest_question else 00000
 
-# def save_question_to_database_and_spreadsheet(phone_number, question_type, questions, worksheet):
-#     # Assuming you have a collection named 'questions' in your MongoDB
-#     questions_collection = mongo.db.questions
-
-#     try:
-#         starting_id = 10000
-#         starting_id = get_latest_question_id() + 1
-
-#         for question_text in questions:
-#             starting_id = get_latest_question_id() + 1
-#             question_id = starting_id
-#             current_date = datetime.date.today()
-#             created_date = current_date.strftime("%Y-%m-%d")
-#             # Save to the database
-#             question_doc = {
-#                 "_id": ObjectId(),
-#                 "created_By": phone_number,
-#                 "question_id": question_id,
-#                 "question_type": question_type,  # Add the question type field
-#                 "question_text": question_text,
-#                 "created_at": created_date
-
-#             }
-#             result = questions_collection.insert_one(question_doc)
-    
-#             if result.inserted_id:
-#                 print(f"Question saved to the 'questions' collection for phone number: {phone_number}")
-#                 starting_id += 1  # Increment the current ID for the next question
-#             else:
-#                 print(f"Failed to save question to the 'questions' collection for phone number: {phone_number}")
-
-#             # Save to the spreadsheet
-#             combined_question = f"{question_id}. {question_text}"
-#             worksheet.append_row([combined_question, question_type])  # Save both question and type
-#             print(f"Question saved to the spreadsheet for phone number: {phone_number}")
-
-#             if not user_in_question_creation_mode.get(phone_number, False):
-#                 # If not, clear the active sheet for this user
-#                 if phone_number in active_sheets:
-#                     active_sheets.pop(phone_number)
-
-#     except Exception as e:
-#         print(f"An error occurred while saving questions to the database and spreadsheet: {str(e)}")
-
-def save_question_to_database_and_spreadsheet(phone_number, question_type, questions, worksheet):
+def save_question_to_database_and_spreadsheet(phone_number, questions, worksheet):
     # Assuming you have a collection named 'questions' in your MongoDB
     questions_collection = mongo.db.questions
 
     try:
-        current_date = datetime.date.today()
-        created_date = current_date.strftime("%Y-%m-%d")
-        
-        # Find the document for today's date or create it if it doesn't exist
-        question_doc = questions_collection.find_one({"date": created_date})
-        if question_doc is None:
-            question_doc = {
-                "date": created_date,
-                "questions": [],
-                "latest_question_id": 0
-            }
+        starting_id = 10000
+        starting_id = get_latest_question_id() + 1
 
         for question_text in questions:
-            # Increment the latest question ID for this date
-            question_doc["latest_question_id"] += 1
-            question_id = question_doc["latest_question_id"]
+            # # Generate a five-digit question ID
+            # question_id = str(current_id).zfill(5)
             
-            # Append the question to the list of questions for today's date
-            question_doc["questions"].append({
+            starting_id = get_latest_question_id() + 1
+            question_id = starting_id
+            # Save to the database
+            question_doc = {
                 "_id": ObjectId(),
                 "created_By": phone_number,
                 "question_id": question_id,
-                "question_type": question_type,
                 "question_text": question_text,
-                "created_at": created_date
-            })
+            }
+            result = questions_collection.insert_one(question_doc)
     
-            result = questions_collection.update_one({"date": created_date}, {"$set": question_doc}, upsert=True)
-            if result.modified_count > 0 or result.upserted_id:
+            if result.inserted_id:
                 print(f"Question saved to the 'questions' collection for phone number: {phone_number}")
+                starting_id += 1  # Increment the current ID for the next question
             else:
                 print(f"Failed to save question to the 'questions' collection for phone number: {phone_number}")
 
             # Save to the spreadsheet
+            # spreadsheet = client.open('Daily_Questions')
+            # worksheet = spreadsheet.worksheet('Sheet2')
             combined_question = f"{question_id}. {question_text}"
-            worksheet.append_row([combined_question, question_type])  # Save both question and type
+            worksheet.append_row([combined_question])
+            # worksheet.append_row([question_id, question_text])
             print(f"Question saved to the spreadsheet for phone number: {phone_number}")
 
             if not user_in_question_creation_mode.get(phone_number, False):
                 # If not, clear the active sheet for this user
                 if phone_number in active_sheets:
                     active_sheets.pop(phone_number)
+
     except Exception as e:
         print(f"An error occurred while saving questions to the database and spreadsheet: {str(e)}")
+
 
 def reset_question_count_and_status():
     try:
@@ -319,9 +198,9 @@ def reset_question_count_and_status():
 
 def get_questions_from_spreadsheet(worksheet):
     try:
-        questions = worksheet.col_values(1)  # Assuming questions are in the first column
-        question_types = worksheet.col_values(2)  # Assuming question types are in the second column
-        return list(zip(questions, question_types))
+        questions = worksheet.col_values(1)
+        return questions
+        # return questions[:10]
     except Exception as e:
         print(f"Error fetching questions from the Google Spreadsheet: {str(e)}")
         return []
@@ -452,76 +331,6 @@ def send_new_questions_periodically():
 
 # scheduler.add_job(send_new_questions_periodically, IntervalTrigger(minutes=2))
  
-# def send_branch_images(documents, questions):
-#     print("Executing send_branch_images function")
-    
-#     try:        
-#         print(f"questions: {questions}")
-#         print(f"Filtered data: {list(documents)}") 
-#         for staff in documents:
-#             print(f"staff: {staff}")
-#             # Check if 'branch' and 'phone_number' fields exist in the document
-#             if 'branch' in staff and 'phone_number' in staff:
-#                 branch = staff['branch']
-#                 phone_number = staff['phone_number']
-#                 alternate_phone_number = staff.get('alternate_phone_number')  # Get the alternate number if available
-
-#                 print(f"Processing branch: {branch}, Primary Phone: {phone_number}, Alternate Phone: {alternate_phone_number}")
-
-#                 # Check if an image exists for this branch with either .png or .jpg extension
-#                 image_extensions = ['.png', '.jpg']
-#                 image_found = False
-
-#                 for ext in image_extensions:
-#                     image_path = f'E:\\NewProject\\Python\\Corprate App\\Question&AnswerBot\\After Modification\\Latest\\daily_bot_using_excel\\branch_images\\{branch}{ext}'
-                                    
-#                     if os.path.isfile(image_path):
-#                         image_found = True
-#                         print("Image exists. Sending to", phone_number)
-#                         # Provide a caption for the image message
-#                         caption = f'Here is your image for branch {branch}'
-#                         send_image_message(phone_number, image_path, caption)
-#                         print(f"Image sent for branch {branch} with extension {ext}")
-
-#                         # Send questions based on question type
-#                         for question, question_type in questions:
-#                             if question_type == "Yes or No":
-#                                 # Send question with yes or no buttons
-#                                 send_reply_button(phone_number, question, answer_buttons)
-#                             else:
-#                                 # Send regular text question
-#                                 send_message(phone_number, question)
-#                                 print(f"Question sent for branch {branch} phone number {phone_number}")
-
-#                         db.update_one({"_id": staff["_id"]}, {"$set": {"status": "sent"}})
-
-#                         if alternate_phone_number and alternate_phone_number != phone_number:
-#                             print("Sending to alternate phone number:", alternate_phone_number)
-#                             send_image_message(alternate_phone_number, image_path, caption)
-#                             print(f"Image sent for branch {branch} to alternate phone number {alternate_phone_number}")
-                            
-#                             # Send questions based on question type to alternate phone number
-#                             for question, question_type in questions:
-#                                 if question_type == "Yes or No":
-#                                     # Send question with yes or no buttons
-#                                     send_reply_button(alternate_phone_number, question, answer_buttons)
-#                                 else:
-#                                     # Send regular text question
-#                                     send_message(alternate_phone_number, question)
-#                                     print(f"Question sent for branch {branch} to alternate phone number {alternate_phone_number}")
-
-#                             db.update_one({"_id": staff["_id"]}, {"$set": {"status": "sent"}})
-
-#                 if not image_found:
-#                     print(f"No image found for branch {branch}")
-#             else:
-#                 print("Missing 'branch' or 'phone_number' field in the document.")
-
-#         # Close the MongoDB connection
-#         # client.close()
-#     except Exception as e:
-#         print(f"An error occurred: {str(e)}")
-        
 def send_branch_images(documents, questions):
     print("Executing send_branch_images function")
     
@@ -552,68 +361,18 @@ def send_branch_images(documents, questions):
                         caption = f'Here is your image for branch {branch}'
                         send_image_message(phone_number, image_path, caption)
                         print(f"Image sent for branch {branch} with extension {ext}")
-
-                        # Ensure questions are stored as a dictionary
-                        # if phone_number not in questions:
-                        #     questions[phone_number] = []
-
-                        # Send questions based on question type
-                        # Send questions based on question type
-                        for question_tuple in questions:
-                            question, question_type = question_tuple
-                            if question_type == "Yes or No":
-                                if question is None:
-                                    # Get question text from send_reply_button function
-                                    question = send_reply_button(phone_number, None, answer_buttons)
-                                    print("Question: ", question)
-                                # Send question with yes or no buttons
-                                send_reply_button(phone_number, question, answer_buttons)
-
-                            elif question_type == "Image Upload":
-                                # Send regular text question
-                                send_question_message(phone_number, question)
-                                print(f"Question sent for branch {branch} phone number {phone_number}")
-
-                            elif question_type == "Text":
-                                # Send regular text question
-                                send_question_message(phone_number, question)
-                                print(f"Question sent for branch {branch} phone number {phone_number}")
-
-                            else:
-                                # Send regular text question
-                                send_question_message(phone_number, question)
-                                print(f"Question sent for branch {branch} phone number {phone_number}")
-
+                        send_questions_to_contact(phone_number, questions)
+                        send_message(phone_number, f"Please provide your answers in the following format: 1. Answer")
+                        print(f"Questions sent for branch {branch} phone number {phone_number}")
                         db.update_one({"_id": staff["_id"]}, {"$set": {"status": "sent"}})
 
                         if alternate_phone_number and alternate_phone_number != phone_number:
                             print("Sending to alternate phone number:", alternate_phone_number)
                             send_image_message(alternate_phone_number, image_path, caption)
                             print(f"Image sent for branch {branch} to alternate phone number {alternate_phone_number}")
-                            
-                            # Ensure questions are stored as a dictionary for alternate phone number
-                            if alternate_phone_number not in questions:
-                                questions[alternate_phone_number] = []
-
-                            # Send questions based on question type to alternate phone number
-                            for question, question_type in questions[alternate_phone_number]:
-                                if question_type == "Yes or No":
-                                    if question is None:
-                                        # Get question text from send_reply_button function
-                                        question = send_reply_button(alternate_phone_number, None, answer_buttons)
-                                    # Send question with yes or no buttons
-                                    send_reply_button(alternate_phone_number, question, answer_buttons)
-
-                                elif question_type == "Image Upload":
-                                    # Send regular text question
-                                    send_question_message(alternate_phone_number, question)
-                                    print(f"Question sent for branch {branch} phone number {alternate_phone_number}")
-
-                                else:
-                                    # Send regular text question
-                                    send_question_message(alternate_phone_number, question)
-                                    print(f"Question sent for branch {branch} to alternate phone number {alternate_phone_number}")
-
+                            send_questions_to_contact(alternate_phone_number, questions)
+                            send_message(alternate_phone_number, f"Please provide your answers in the following format: 1. Answer")
+                            print(f"Questions sent for branch {branch} to alternate phone number {alternate_phone_number}")
                             db.update_one({"_id": staff["_id"]}, {"$set": {"status": "sent"}})
 
                 if not image_found:
@@ -647,7 +406,6 @@ mail_mode = {}
 form_mode = {}
 form_data = {}
 user_in_question_creation_mode = {}
-pending_questions = {}
 
 
 def search_for_question_answer(question_number, worksheet):
@@ -706,47 +464,41 @@ def process_message(phone_number, message):
     if message.startswith("/create"):
         user = db.find_one({"phone_number": phone_number})
         if user and user.get("position") in ["BM", "RM"]:
-            user_in_question_creation_mode[phone_number] = {"question_type": None}  # Initialize question type
-            user_in_question_creation_mode[phone_number]["in_creation_mode"] = True
+            user_in_question_creation_mode[phone_number] = True
             print(f"User {phone_number} entered question creation mode.")
-            # options_message = "What type of question do you want to create?"
-            send_list(phone_number, "Select Question Type", type_list)
+            # send_message(phone_number, "You are now in question creation mode. Send your questions one by one.")
+            options_message = "What type of question do you going to create?\n1. Yes or No\n2. Text\n3. Image Upload"
+            send_message(phone_number, options_message)
+            # Check if the user has an active sheet, create one if not
             if phone_number not in active_sheets:
                 spreadsheet, worksheet, worksheet_name = open_spreadsheet()
                 active_sheets[phone_number] = {"spreadsheet": spreadsheet, "worksheet": worksheet, "worksheet_name": worksheet_name}
+
             questions[phone_number] = []  # Initialize questions for this user
             print(f"questions after /create: {questions}")
+
         else:
             send_message(phone_number, "Permission denied. You don't have the necessary position to create questions.")
 
-    elif user_in_question_creation_mode.get(phone_number, {}).get("in_creation_mode", False):
+    elif user_in_question_creation_mode.get(phone_number, False):
         if message.strip() == "/end":
             send_message(phone_number, "Question creation mode ended.")
-            user_in_question_creation_mode[phone_number]["in_creation_mode"] = False
-            # options_message = "To whom do you want to send the questions?\n1. Clerical\n2. Officer\n3. BM"
-            # send_message(phone_number, options_message)
-            send_list(phone_number, "To whom you want to send\n", position_list)
+            user_in_question_creation_mode[phone_number] = False
+            
+            options_message = "To whom do you want to send the questions?\n1. Clerical\n2. Officer\n3. BM"
+            send_message(phone_number, options_message)
+
         else:
-            if user_in_question_creation_mode[phone_number]["question_type"] is None:
-                # Check if the message is a valid option for question type
-                if message.strip() in ["Yes or No", "Text", "Image Upload"]:
-                    user_in_question_creation_mode[phone_number]["question_type"] = message.strip()
-                    print("Question Type:", user_in_question_creation_mode[phone_number]["question_type"])
-                    send_message(phone_number, "Please enter your question.")
-                else:
-                    send_message(phone_number, "Invalid question type. Please select a valid option.")
-            else:
-                # This means the user has already selected a question type, so the message is the question
-                question_type = user_in_question_creation_mode[phone_number]["question_type"]
-                questions_to_save = questions.get(phone_number, [])
-                questions_to_save.append(message)
-                questions[phone_number] = questions_to_save
-                print("Question Type1:", question_type)
-                print("Question:", questions_to_save)
-                save_question_to_database_and_spreadsheet(phone_number, question_type, questions_to_save, active_sheets[phone_number]["worksheet"])
-                send_message(phone_number, "Question saved.\n Please select question type for next question or\n send '/end' to finish.")
-                user_in_question_creation_mode[phone_number]["question_type"] = None
-                send_list(phone_number, "Select Question Type", type_list)
+            questions_to_save = questions.get(phone_number, [])
+            questions_to_save.append(message)
+            questions[phone_number] = questions_to_save
+
+            print(f"questions_to_save: {questions_to_save}")
+
+            if questions_to_save and "/end" not in questions_to_save:
+                save_question_to_database_and_spreadsheet(phone_number, questions_to_save, active_sheets[phone_number]["worksheet"])
+
+            send_message(phone_number, f"To end, send '/end'.")
 
     
     elif message == "/help":    
@@ -1124,79 +876,35 @@ def process_message(phone_number, message):
 
                     question_id = int(response_number)
                     print(question_id)
-                    current_date = datetime.date.today()
-                    current_date_str = current_date.strftime("%Y-%m-%d")
+                    question_data = questions_db.find_one({"question_id": question_id})
 
-                    # Find documents with questions for the current date
-                    
-                    # question_data = questions_db.find_one({"date": current_date_str},{"questions.question_id": question_id})
-                    question_data = questions_db.find_one({"date": current_date_str, "questions.question_id": question_id}, {"questions.$": 1})
-                    print("Question data",question_data)
                     if question_data:
-                        print(question_data["_id"])
-                        print(question_data["questions"])
-                        question = question_data["questions"][0]
-                        created_by = question["created_By"]
-                        question_text = question["question_text"]
+                        # Check if an entry with the same "answered_by" and "created_By" values exists
+                        existing_entry = answers_db.find_one({"answered_by": number, "created_By": question_data["created_By"]})
 
-                        # Now you can use 'created_by' and 'question_text' in your answer data
-                        current_date = datetime.date.today()
-                        created_date = current_date.strftime("%Y-%m-%d")
-                        answer_data = {
-                            "created_By": created_by,
-                            "answered_by": number,
-                            "question": question_text,
-                            "answer": answer,
-                            "created_at": created_date
-                        }
-                        answers_db.insert_one(answer_data)
+                        if existing_entry:
+                            # If the same "answered_by" and "created_By" values exist, update the existing entry
+                            filter_query = {"answered_by": number, "created_By": question_data["created_By"]}
+                            update_query = {
+                                "$set": {
+                                    "question_"+str(question_data["question_id"]): question_data["question_text"],
+                                    "answer_"+str(question_data["question_id"]): answer
+                                }
+                            }
+                            answers_db.update_one(filter_query, update_query)
 
-                        return jsonify({"status": "success", "message": "Answer recorded."}), 200
-                    else:
-                        return jsonify({"status": "error", "message": "Invalid question number. Please try again."}), 400
-                
-                elif data_1['type'] == 'interactive':
-                    incoming_message = data_1['text']
-                    print(incoming_message)
+                            return jsonify({"status": "success", "message": "Answer updated."}), 200
+                        else:
+                            # If no entry with the same "answered_by" and "created_By" values exists, insert a new one
+                            answer_data = {
+                                "created_By": question_data["created_By"],
+                                "answered_by": number,
+                                "question_"+str(question_data["question_id"]): question_data["question_text"],
+                                "answer_"+str(question_data["question_id"]): answer
+                            }
+                            answers_db.insert_one(answer_data)
 
-                    response_number, answer = incoming_message.split(". ", 1)
-                    print(response_number)
-                    print(answer)
-
-                    question_id = int(response_number)
-                    print(question_id)
-
-                    current_date = datetime.date.today()
-                    current_date_str = current_date.strftime("%Y-%m-%d")
-
-                    # Find documents with questions for the current date
-                    
-                    # question_data = questions_db.find_one({"date": current_date_str},{"questions.question_id": question_id})
-                    question_data = questions_db.find_one({"date": current_date_str, "questions.question_id": question_id}, {"questions.$": 1})
-                    print("Question data",question_data)
-                    if question_data:
-                        print(question_data["_id"])
-                        print(question_data["questions"])
-                        question = question_data["questions"][0]
-                        created_by = question["created_By"]
-                        question_text = question["question_text"]
-
-                        # Now you can use 'created_by' and 'question_text' in your answer data
-                        current_date = datetime.date.today()
-                        created_date = current_date.strftime("%Y-%m-%d")
-                        answer_data = {
-                            "created_By": created_by,
-                            "answered_by": number,
-                            "question": question_text,
-                            "answer": answer,
-                            "created_at": created_date
-                        }
-
-                        # Insert answer data into the database
-                        answers_db.insert_one(answer_data)
-
-                        return jsonify({"status": "success", "message": "Answer recorded."}), 200
-
+                            return jsonify({"status": "success", "message": "Answer recorded."}), 200
                     else:
                         return jsonify({"status": "error", "message": "Invalid question number. Please try again."}), 400
                 elif data_1['type'] == 'image' or data_1['type'] == 'document':
@@ -1238,36 +946,37 @@ def process_message(phone_number, message):
 
                     question_id = int(response_number)
                     print(question_id)
-                    current_date = datetime.date.today()
-                    current_date_str = current_date.strftime("%Y-%m-%d")
-
-                    # Find documents with questions for the current date
-                    
-                    # question_data = questions_db.find_one({"date": current_date_str},{"questions.question_id": question_id})
-                    question_data = questions_db.find_one({"date": current_date_str, "questions.question_id": question_id}, {"questions.$": 1})
-                    print("Question data",question_data)
+                    question_data = questions_db.find_one({"question_id": question_id})
 
                     if question_data:
-                        question = question_data["questions"][0]
-                        created_by = question["created_By"]
-                        question_text = question["question_text"]
+                        # Check if an entry with the same "answered_by" and "created_By" values exists
+                        existing_entry = answers_db.find_one({"answered_by": number, "created_By": question_data["created_By"]})
 
-                        # Now you can use 'created_by' and 'question_text' in your answer data
-                        current_date = datetime.date.today()
-                        created_date = current_date.strftime("%Y-%m-%d")
-                       
-                        # If no entry with the same "answered_by" and "created_By" values exists, insert a new one
-                        answer_data = {
-                            "created_By": question_data["created_By"],
-                            "answered_by": number,
-                            "question": question_data["question_text"],
-                            # "answer_"+str(question_data["question_id"]): answer,
-                            "answer_image": image_path,
-                            "created_at": created_date
-                        }
-                        answers_db.insert_one(answer_data)
+                        if existing_entry:
+                            # If the same "answered_by" and "created_By" values exist, update the existing entry
+                            filter_query = {"answered_by": number, "created_By": question_data["created_By"]}
+                            update_query = {
+                                "$set": {
+                                    "question_"+str(question_data["question_id"]): question_data["question_text"],
+                                    # "answer_"+str(question_data["question_id"]): answer,
+                                    "answer_image_"+str(question_data["question_id"]): image_path
+                                }
+                            }
+                            answers_db.update_one(filter_query, update_query)
 
-                        return jsonify({"status": "success", "message": "Answer recorded."}), 200
+                            return jsonify({"status": "success", "message": "Answer updated."}), 200
+                        else:
+                            # If no entry with the same "answered_by" and "created_By" values exists, insert a new one
+                            answer_data = {
+                                "created_By": question_data["created_By"],
+                                "answered_by": number,
+                                "question_"+str(question_data["question_id"]): question_data["question_text"],
+                                # "answer_"+str(question_data["question_id"]): answer,
+                                "answer_image_"+str(question_data["question_id"]): image_path
+                            }
+                            answers_db.insert_one(answer_data)
+
+                            return jsonify({"status": "success", "message": "Answer recorded."}), 200
                     else:
                         return jsonify({"status": "error", "message": "Invalid question number. Please try again."}), 400
  
@@ -1358,41 +1067,23 @@ def connetwebhook():
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-
     try:
-        message_id = request.json.get('id')
-
-        # Check if the message has already been processed
-        
-        if message_id in processed_message_ids:
-            print(f"Message with ID {message_id} has already been processed. Skipping...")
-            return jsonify({'message': 'Webhook skipped because message already processed'}), 200
-        else:
-            processed_message_ids.add(message_id)
         # Extract message details from request
-        json_data = request.json
-        print(f"Received POST request with JSON: {json_data}")
-
-        # Extract message text and phone number
-        message = json_data.get('text')
-        phone_number = json_data.get('waId')
-
-        # Check if the message is a list reply
-        list_reply = json_data.get('listReply')
-        if list_reply:
-            message = list_reply.get('title')
-
-        # Check if the message is an image reply
-        if json_data.get('type') == 'image':
-            message = json_data.get('data')  # Use the data from the image as the message
+        # generate_report()
+        print(f"Received POST request with JSON: {request.json}")
+        message = request.json.get('text')
+        phone_number = request.json.get('waId')
 
         print(f"Received POST request with message: {message} and phone number: {phone_number}")
 
-        # Process the message and save the response
+        # # Process the message and save the response
+        # process_input_message(phone_number, message)
+        
         process_message(phone_number, message)
 
+        # generate_report()        
         return jsonify({'message': 'Webhook executed successfully'}), 200
-
+        
     except Exception as e:
         logging.exception("An error occurred: %s", e)
         return jsonify({'error': str(e)}), 500

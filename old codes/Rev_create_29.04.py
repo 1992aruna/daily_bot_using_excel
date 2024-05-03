@@ -22,11 +22,7 @@ import openai
 # from openai.error import RateLimitError
 from bson import ObjectId
 import pymongo
-from suggestion_handler import start_suggestion_mode, process_suggestion
-from feedback_handler import start_feedback_mode, process_feedback
-from complaint_handler import start_complaint_mode, process_complaint
-from mail_handler import handle_mail
-from form_handler import start_form_mode, process_form_submission
+
 
 # allowed_extensions=["png", "jpg", "jpeg", "mp4", "mp3", "pdf"]
 
@@ -216,6 +212,50 @@ def get_latest_question_id():
     # Get the latest question from the database
     latest_question = questions_collection.find_one({}, sort=[("question_id", pymongo.DESCENDING)])
     return latest_question["question_id"] if latest_question else 00000
+
+# def save_question_to_database_and_spreadsheet(phone_number, question_type, questions, worksheet):
+#     # Assuming you have a collection named 'questions' in your MongoDB
+#     questions_collection = mongo.db.questions
+
+#     try:
+#         starting_id = 10000
+#         starting_id = get_latest_question_id() + 1
+
+#         for question_text in questions:
+#             starting_id = get_latest_question_id() + 1
+#             question_id = starting_id
+#             current_date = datetime.date.today()
+#             created_date = current_date.strftime("%Y-%m-%d")
+#             # Save to the database
+#             question_doc = {
+#                 "_id": ObjectId(),
+#                 "created_By": phone_number,
+#                 "question_id": question_id,
+#                 "question_type": question_type,  # Add the question type field
+#                 "question_text": question_text,
+#                 "created_at": created_date
+
+#             }
+#             result = questions_collection.insert_one(question_doc)
+    
+#             if result.inserted_id:
+#                 print(f"Question saved to the 'questions' collection for phone number: {phone_number}")
+#                 starting_id += 1  # Increment the current ID for the next question
+#             else:
+#                 print(f"Failed to save question to the 'questions' collection for phone number: {phone_number}")
+
+#             # Save to the spreadsheet
+#             combined_question = f"{question_id}. {question_text}"
+#             worksheet.append_row([combined_question, question_type])  # Save both question and type
+#             print(f"Question saved to the spreadsheet for phone number: {phone_number}")
+
+#             if not user_in_question_creation_mode.get(phone_number, False):
+#                 # If not, clear the active sheet for this user
+#                 if phone_number in active_sheets:
+#                     active_sheets.pop(phone_number)
+
+#     except Exception as e:
+#         print(f"An error occurred while saving questions to the database and spreadsheet: {str(e)}")
 
 def save_question_to_database_and_spreadsheet(phone_number, question_type, questions, worksheet):
     # Assuming you have a collection named 'questions' in your MongoDB
@@ -410,7 +450,78 @@ def send_new_questions_periodically():
     except Exception as e:
         print(f"An error occurred: {str(e)}")
 
+# scheduler.add_job(send_new_questions_periodically, IntervalTrigger(minutes=2))
+ 
+# def send_branch_images(documents, questions):
+#     print("Executing send_branch_images function")
+    
+#     try:        
+#         print(f"questions: {questions}")
+#         print(f"Filtered data: {list(documents)}") 
+#         for staff in documents:
+#             print(f"staff: {staff}")
+#             # Check if 'branch' and 'phone_number' fields exist in the document
+#             if 'branch' in staff and 'phone_number' in staff:
+#                 branch = staff['branch']
+#                 phone_number = staff['phone_number']
+#                 alternate_phone_number = staff.get('alternate_phone_number')  # Get the alternate number if available
 
+#                 print(f"Processing branch: {branch}, Primary Phone: {phone_number}, Alternate Phone: {alternate_phone_number}")
+
+#                 # Check if an image exists for this branch with either .png or .jpg extension
+#                 image_extensions = ['.png', '.jpg']
+#                 image_found = False
+
+#                 for ext in image_extensions:
+#                     image_path = f'E:\\NewProject\\Python\\Corprate App\\Question&AnswerBot\\After Modification\\Latest\\daily_bot_using_excel\\branch_images\\{branch}{ext}'
+                                    
+#                     if os.path.isfile(image_path):
+#                         image_found = True
+#                         print("Image exists. Sending to", phone_number)
+#                         # Provide a caption for the image message
+#                         caption = f'Here is your image for branch {branch}'
+#                         send_image_message(phone_number, image_path, caption)
+#                         print(f"Image sent for branch {branch} with extension {ext}")
+
+#                         # Send questions based on question type
+#                         for question, question_type in questions:
+#                             if question_type == "Yes or No":
+#                                 # Send question with yes or no buttons
+#                                 send_reply_button(phone_number, question, answer_buttons)
+#                             else:
+#                                 # Send regular text question
+#                                 send_message(phone_number, question)
+#                                 print(f"Question sent for branch {branch} phone number {phone_number}")
+
+#                         db.update_one({"_id": staff["_id"]}, {"$set": {"status": "sent"}})
+
+#                         if alternate_phone_number and alternate_phone_number != phone_number:
+#                             print("Sending to alternate phone number:", alternate_phone_number)
+#                             send_image_message(alternate_phone_number, image_path, caption)
+#                             print(f"Image sent for branch {branch} to alternate phone number {alternate_phone_number}")
+                            
+#                             # Send questions based on question type to alternate phone number
+#                             for question, question_type in questions:
+#                                 if question_type == "Yes or No":
+#                                     # Send question with yes or no buttons
+#                                     send_reply_button(alternate_phone_number, question, answer_buttons)
+#                                 else:
+#                                     # Send regular text question
+#                                     send_message(alternate_phone_number, question)
+#                                     print(f"Question sent for branch {branch} to alternate phone number {alternate_phone_number}")
+
+#                             db.update_one({"_id": staff["_id"]}, {"$set": {"status": "sent"}})
+
+#                 if not image_found:
+#                     print(f"No image found for branch {branch}")
+#             else:
+#                 print("Missing 'branch' or 'phone_number' field in the document.")
+
+#         # Close the MongoDB connection
+#         # client.close()
+#     except Exception as e:
+#         print(f"An error occurred: {str(e)}")
+        
 def send_branch_images(documents, questions):
     print("Executing send_branch_images function")
     
@@ -442,6 +553,12 @@ def send_branch_images(documents, questions):
                         send_image_message(phone_number, image_path, caption)
                         print(f"Image sent for branch {branch} with extension {ext}")
 
+                        # Ensure questions are stored as a dictionary
+                        # if phone_number not in questions:
+                        #     questions[phone_number] = []
+
+                        # Send questions based on question type
+                        # Send questions based on question type
                         for question_tuple in questions:
                             question, question_type = question_tuple
                             if question_type == "Yes or No":
@@ -743,71 +860,248 @@ def process_message(phone_number, message):
         response1 = "You question mode ended."
         send_message(phone_number, response1)
 
-
+    
     elif message == "/suggestion":
         suggestion_mode[phone_number] = True
-        start_suggestion_mode(phone_number)
-        # You can also send a response message here if needed.
+        response = "You are now in suggestion mode. Send your suggestion."
+        send_message(phone_number, response)
+        # global suggestion_mode
         
+
     # Assuming subsequent messages should be treated as suggestions
     elif suggestion_mode.get(phone_number, False):
+        data_2 = request.json
+        print(data_2)
         try:
-            data_2 = request.json
-            if data_2 is not None:
-                process_suggestion(phone_number, data_2)
-            else:
-                print("Error: No data received in request.json")
-        except Exception as e:
-            print("Error processing suggestion:", e)
+            number = data_2['waId']
+            print(number)
 
+            if data_2['type'] == 'text':
+                received_message = data_2['text']
+                print(received_message)
+                
+                staff_data = db.find_one({"phone_number": number})
+
+                if staff_data:
+                    last_suggestion = suggestion_db.find_one({"phone_number": number}, sort=[("suggestion_no", -1)])
+                    last_suggestion_no = last_suggestion["suggestion_no"] if last_suggestion else "1000000"
+
+                    # # Increment the last suggestion number and generate the new suggestion number
+                    # new_suggestion_no = str(int(last_suggestion_no) + 1)
+
+                    # Extract the number part from last_suggestion_no and convert it to an integer
+                    if last_suggestion_no.startswith("S_"):
+                        last_suggestion_number = int(last_suggestion_no.split("_")[1])
+                    else:
+                        last_suggestion_number = int(last_suggestion_no)
+
+                    # If it's the first suggestion, start with 10000001
+                    if last_suggestion_number < 1000001:
+                        new_suggestion_number = 1000001
+                    else:
+                        # Increment the suggestion number
+                        new_suggestion_number = last_suggestion_number + 1
+
+                    # Construct the new suggestion number with the "S_" prefix
+                    new_suggestion_no = f"S_{new_suggestion_number}"
+
+                    # Create the suggestion data
+                    suggestion_data = {
+                        "suggestion_no": new_suggestion_no,
+                        "name": staff_data.get("name", ""),
+                        "position": staff_data.get("position", ""),                         
+                        "branch": staff_data.get("branch", ""),                       
+                        "phone_number": staff_data.get("phone_number", ""),
+                        "suggestion": received_message
+                    }
+                    suggestion_db.insert_one(suggestion_data)
+
+            # suggestion_counter += 1
+            suggestion_mode[phone_number] = False
+            send_message(phone_number, "Suggestion mode ended.")
+        except Exception as e:
+            print(e)
+            print("Error in suggestion mode")
+            
     elif message == "/feedback":
         feedback_mode[phone_number] = True
-        start_feedback_mode(phone_number)
-        # You can also send a response message here if needed.
-        
-    # Assuming subsequent messages should be treated as feedbacks
+        response = "You are now in feedback mode. Send your feedback."
+        send_message(phone_number, response)
+        # global feedback_mode
+        # feedback_mode = True
+
+    # Assuming subsequent messages should be treated as feedback
     elif feedback_mode.get(phone_number, False):
+        data_3 = request.json
+        print(data_3)
         try:
-            data_2 = request.json
-            if data_2 is not None:
-                process_feedback(phone_number, data_2)
-            else:
-                print("Error: No data received in request.json")
+            number = data_3['waId']
+            print(number)
+
+            if data_3['type'] == 'text':
+                received_message_1 = data_3['text']
+                print(received_message_1)
+                
+                staff_data = db.find_one({"phone_number": number})
+
+                if staff_data:
+                    last_feedback = feedback_db.find_one({"phone_number": number}, sort=[("feedback_no", -1)])
+                    last_feedback_no = last_feedback["feedback_no"] if last_feedback else "1000000"
+
+                    if last_feedback_no.startswith("S_"):
+                        last_feedback_number = int(last_feedback_no.split("_")[1])
+                    else:
+                        last_feedback_number = int(last_feedback_no)
+
+                    # If it's the first feedback, start with 10000001
+                    if last_feedback_number < 1000001:
+                        new_feedback_number = 1000001
+                    else:
+                        # Increment the feedback number
+                        new_feedback_number = last_feedback_number + 1
+
+                    # Construct the new feedback number with the "S_" prefix
+                    new_feedback_no = f"F_{new_feedback_number}"
+
+                    feedback_data = {
+                        "feedback_no": new_feedback_no,
+                        "name": staff_data.get("name", ""),
+                        "position": staff_data.get("position", ""),                         
+                        "branch": staff_data.get("branch", ""),                       
+                        "phone_number": staff_data.get("phone_number", ""),
+                        "feedback": received_message_1
+                    }
+                    feedback_db.insert_one(feedback_data)
+
+                    # feedback_counter += 1
+                    feedback_mode[phone_number] = False
+                    send_message(phone_number, "Feedback mode ended.")
         except Exception as e:
-            print("Error processing feedback:", e)
-        
+            print(e)
+            print("Error in feedback mode")
+   
     elif message == "/complaint":
         complaint_mode[phone_number] = True
-        start_complaint_mode(phone_number)
-        # You can also send a response message here if needed.
-        
-    # Assuming subsequent messages should be treated as complaints
+        response = "You are now in feedback mode. Send your feedback."
+        send_message(phone_number, response)
+        # global feedback_mode
+        # feedback_mode = True
+
+    # Assuming subsequent messages should be treated as feedback
     elif complaint_mode.get(phone_number, False):
+        data_3 = request.json
+        print(data_3)
         try:
-            data_2 = request.json
-            if data_2 is not None:
-                process_complaint(phone_number, data_2)
-            else:
-                print("Error: No data received in request.json")
+            number = data_3['waId']
+            print(number)
+
+            if data_3['type'] == 'text':
+                received_message_1 = data_3['text']
+                print(received_message_1)
+                
+                staff_data = db.find_one({"phone_number": number})
+
+                if staff_data:
+                    last_complaint = complaint_db.find_one({"phone_number": number}, sort=[("complaint_no", -1)])
+                    last_complaint_no = last_complaint["complaint_no"] if last_complaint else "1000000"
+
+                    if last_complaint_no.startswith("S_"):
+                        last_complaint_number = int(last_complaint_no.split("_")[1])
+                    else:
+                        last_complaint_number = int(last_complaint_no)
+
+                    # If it's the first complaint, start with 10000001
+                    if last_complaint_number < 1000001:
+                        new_complaint_number = 1000001
+                    else:
+                        # Increment the complaint number
+                        new_complaint_number = last_complaint_number + 1
+
+                    # Construct the new complaint number with the "S_" prefix
+                    new_complaint_no = f"C_{new_complaint_number}"
+                    
+                    complaint_data = {
+                        "complaint_no": new_complaint_no,
+                        "name": staff_data.get("name", ""),
+                        "position": staff_data.get("position", ""),                         
+                        "branch": staff_data.get("branch", ""),                       
+                        "phone_number": staff_data.get("phone_number", ""),
+                        "complaint": received_message_1
+                    }
+                    complaint_db.insert_one(complaint_data)
+
+                    # complaint_counter += 1
+                    complaint_mode[phone_number] = False
+                    send_message(phone_number, "Complaint mode ended.")
         except Exception as e:
-            print("Error processing complaint:", e)
+            print(e)
+            print("Error in complaint mode")
 
     elif message == "/mail":
         mail_mode[phone_number] = True
-        handle_mail(phone_number)
         # Get the user's data based on their phone number
-    # elif mail_mode.get(phone_number, False):
-    #     handle_mail(phone_number)
+    elif mail_mode.get(phone_number, False):
+        staff_data = db.find_one({"phone_number": phone_number})
+
+        if staff_data:
+            branch = staff_data["branch"]
+            email = staff_data["email"]
+            
+            # Assuming you have the 'branch' and 'email' variables available
+            send_document(email, branch)
+            response = "Email sent successfully."            
+            send_message(phone_number, response)
+            mail_mode[phone_number] = False
+        else:
+            response = "User data not found."
+            send_message(phone_number, response)
 
     elif message == "/form":
         form_mode[phone_number] = True
         form_data[phone_number] = {}
-        start_form_mode(phone_number)
+        send_message(phone_number, "Please enter your name:")
 
-        # send_message(phone_number, "Please enter your name:")
-
+# Assuming subsequent messages should be treated as form responses
     elif form_mode.get(phone_number, False):
-        process_form_submission(phone_number)
+        data_2 = request.json
+        try:
+            if data_2['type'] == 'text':
+                received_message = data_2['text']
+                if 'name' not in form_data[phone_number]:
+                    form_data[phone_number]['name'] = received_message
+                    send_message(phone_number, "Please enter your age:")
+                elif 'age' not in form_data[phone_number]:
+                    form_data[phone_number]['age'] = received_message
+                    send_message(phone_number, "Please enter your qualification:")
+                elif 'qualification' not in form_data[phone_number]:
+                    form_data[phone_number]['qualification'] = received_message
+                    
+                    form_db.insert_one({
+                        "phone_number": phone_number, 
+                        "name": form_data[phone_number]["name"], 
+                        "age": form_data[phone_number]["age"], 
+                        "qualification": form_data[phone_number]["qualification"]
+                    })
+
+                    # Once all information is collected, fill the HTML form
+                    # html_content = fill_html_form(form_data[phone_number]['name'], form_data[phone_number]['age'], form_data[phone_number]['qualification'])
+                    
+                    # Convert HTML to PDF
+                    pdf_output_path = create_pdf(form_data[phone_number],phone_number)
+
+                    
+                    # Send the PDF to the user
+                    send_form_pdf(phone_number, pdf_output_path)
+                    
+                    # Reset form mode and data for the next form request
+                    form_mode[phone_number] = False
+                    del form_data[phone_number]
+                    
+                    # Confirmation message
+                    # send_message(phone_number, "Form sent successfully.")
+        except KeyError:
+            pass  # Handle if 'type' or 'text' key is not present in the received data
+
     else:        
         print(f"Received message: {message} from phone_number: {phone_number}")
             

@@ -14,8 +14,8 @@ client = pymongo.MongoClient(MONGO_URI)
 
 # Access the desired database
 db = client["sbi"]
-complaint_db = db["complaints"]  # Assuming "complaints" is the name of the collection
-
+complaint_db = db["complaint"]  # Assuming "complaints" is the name of the collection
+staff_db = db["staff"]
 complaint_mode = {}
 complaint_counter = 0
 def send_message(contact_number, message):
@@ -48,7 +48,7 @@ def process_complaint(phone_number, data_2):
             received_message = data_2['text']
             print(received_message)
             
-            staff_data = complaint_db.find_one({"phone_number": number})
+            staff_data = staff_db.find_one({"phone_number": number})
 
             if staff_data:
                     last_complaint = complaint_db.find_one({"phone_number": number}, sort=[("complaint_no", -1)])
@@ -58,7 +58,7 @@ def process_complaint(phone_number, data_2):
                     # new_complaint_no = str(int(last_complaint_no) + 1)
 
                     # Extract the number part from last_complaint_no and convert it to an integer
-                    if last_complaint_no.startswith("S_"):
+                    if last_complaint_no.startswith("C_"):
                         last_complaint_number = int(last_complaint_no.split("_")[1])
                     else:
                         last_complaint_number = int(last_complaint_no)
@@ -71,7 +71,7 @@ def process_complaint(phone_number, data_2):
                         new_complaint_number = last_complaint_number + 1
 
                     # Construct the new complaint number with the "S_" prefix
-                    new_complaint_no = f"S_{new_complaint_number}"
+                    new_complaint_no = f"C_{new_complaint_number}"
 
                     # Create the complaint data
                     complaint_data = {
@@ -83,6 +83,7 @@ def process_complaint(phone_number, data_2):
                         "complaint": received_message
                     }
                     complaint_db.insert_one(complaint_data)
+                    send_message(phone_number, f"Complaint has been registered.\nThe ticket number of your complaint is {new_complaint_no}.")
 
             # complaint_counter += 1
             complaint_mode[phone_number] = False

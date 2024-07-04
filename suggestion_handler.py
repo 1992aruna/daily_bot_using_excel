@@ -15,6 +15,7 @@ client = pymongo.MongoClient(MONGO_URI)
 # Access the desired database
 db = client["sbi"]
 suggestion_db = db["suggestion"]  # Assuming "suggestions" is the name of the collection
+staff_db = db["staff"]
 
 suggestion_mode = {}
 suggestion_counter = 0
@@ -48,7 +49,7 @@ def process_suggestion(phone_number, data_2):
             received_message = data_2['text']
             print(received_message)
             
-            staff_data = suggestion_db.find_one({"phone_number": number})
+            staff_data = staff_db.find_one({"phone_number": number})
 
             if staff_data:
                     last_suggestion = suggestion_db.find_one({"phone_number": number}, sort=[("suggestion_no", -1)])
@@ -83,6 +84,7 @@ def process_suggestion(phone_number, data_2):
                         "suggestion": received_message
                     }
                     suggestion_db.insert_one(suggestion_data)
+                    send_message(phone_number, "Thank you for your Suggestion.")
 
             # suggestion_counter += 1
             suggestion_mode[phone_number] = False
